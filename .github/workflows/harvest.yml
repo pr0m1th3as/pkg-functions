@@ -1,0 +1,163 @@
+name: Harvest package functions
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'    # Sundays, after the index site rebuilds at 01:00
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Space separated package names; empty harvests all'
+        required: false
+        default: ''
+      force:
+        description: 'Re-harvest even when the checksum is unchanged'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  OCTAVE_IMAGE: ghcr.io/gnu-octave/octave:latest
+  SHARDS: 8
+
+jobs:
+
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fetch the package index
+        run: curl -fsSL -o packages.json
+             https://gnu-octave.github.io/packages/packages.json
+
+      - name: Decide what to harvest
+        id: plan
+        env:
+          REQUESTED: ${{ github.event.inputs.packages }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: python3 .github/scripts/plan.py
+
+      - name: Upload the index
+        uses: actions/upload-artifact@v5
+        with:
+          name: package-index
+          path: packages.json
+
+  harvest:
+    needs: plan
+    if: ${{ needs.plan.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the index
+        uses: actions/download-artifact@v6
+        with:
+          name: package-index
+
+      - name: Pull the Octave image
+        run: docker pull "$OCTAVE_IMAGE"
+
+      - name: Harvest
+        run: |
+          mkdir -p out
+          for p in ${{ matrix.packages }}
+          do
+            echo "::group::harvest $p"
+            # One container per package.  A package that wedges the
+            # interpreter, exhausts the disk or corrupts its own load path
+            # cannot then affect the packages harvested after it, and each
+            # scan starts from a load path holding nothing but core Octave.
+            timeout 25m docker run --rm \
+              --volume="$(pwd):/workdir:rw" \
+              --workdir=/workdir \
+              "$OCTAVE_IMAGE" \
+              octave-cli --eval "addpath ('/workdir'); \
+                harvest_package ('$p', '/workdir/packages.json', \
+                                 '/workdir/out');" || true
+            if [ ! -f "out/$p.json" ]
+            then
+              # The container died before it could write its own record.  The
+              # version has to come from the index here, because a record
+              # without one has nowhere to live in a version keyed store and
+              # would be dropped -- leaving a package that dies in the runner
+              # invisible rather than merely broken.
+              v="$(jq -r --arg p "$p" '.[$p].versions[0].id // ""' \
+                   packages.json)"
+              s="$(jq -r --arg p "$p" '.[$p].versions[0].sha256 // ""' \
+                   packages.json)"
+              jq -n --arg p "$p" --arg v "$v" --arg s "$s" \
+                '{package: $p, version: $v, sha256: $s,
+                  status: "runner-failed",
+                  message: "container exited without writing a record"}' \
+                > "out/$p.json"
+              echo "::error::$p: runner-failed"
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Upload the records
+        uses: actions/upload-artifact@v5
+        with:
+          name: records-${{ matrix.shard }}
+          path: out/*.json
+
+  collect:
+    needs: [plan, harvest]
+    if: ${{ always() && needs.plan.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download every shard
+        uses: actions/download-artifact@v6
+        with:
+          pattern: records-*
+          path: incoming
+          merge-multiple: true
+
+      # The merge needs to know which release of each package is the newest,
+      # and the index is the authority on that.  Without it the merge falls
+      # back to release dates, which is a guess.
+      - name: Download the index
+        uses: actions/download-artifact@v6
+        with:
+          name: package-index
+
+      - name: Merge into the data set
+        run: python3 .github/scripts/merge.py
+
+      - name: Commit the data set
+        run: |
+          if git diff --quiet -- data
+          then
+            echo "No change."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          git commit -m "data: refresh harvested package functions"
+          git push
+
+      - name: Upload the data set
+        uses: actions/upload-artifact@v5
+        with:
+          name: functions-data
+          path: data

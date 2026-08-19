@@ -1,0 +1,210 @@
+## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
+##
+## This file is part of the pkg-functions repository for GNU Octave.
+##
+## This program is free software; you can redistribute it and/or modify it under
+## the terms of the GNU General Public License as published by the Free Software
+## Foundation; either version 3 of the License, or (at your option) any later
+## version.
+##
+## This program is distributed in the hope that it will be useful, but WITHOUT
+## ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+## FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+## details.
+##
+## You should have received a copy of the GNU General Public License along with
+## this program; if not, see <http://www.gnu.org/licenses/>.
+
+## -*- texinfo -*-
+## @deftypefn  {pkg-functions} {@var{dirlist} =} package_paths (@var{pkgname})
+## @deftypefnx {pkg-functions} {[@var{dirlist}, @var{depinfo}] =} package_paths (@var{pkgname})
+##
+## Resolve the load path directories an installed package contributes.
+##
+## @code{@var{dirlist} = package_paths (@var{pkgname})} returns a cell array of
+## character vectors with the directories that the installed package
+## @var{pkgname} adds to the load path, and leaves the package loaded so that
+## the result can be passed straight to @code{scan_functions}.
+##
+## The directories are measured, not guessed, by taking the difference of
+## @code{path ()} across @code{pkg load}.  A single such difference is not
+## enough whenever the package has dependencies, because @code{pkg load} pulls
+## them in as well and credits the caller with everything they provide.  The
+## whole dependency closure is therefore unloaded first and then reloaded one
+## package at a time, so that each package is measured against a load path that
+## already holds its dependencies and nothing of its own.  Loading
+## @qcode{statistics} this way separates its 546 names from the 59 that belong
+## to @qcode{datatypes}.
+##
+## The difference is cross-checked against the package's own installation
+## directories, taken from the @qcode{dir} and @qcode{archprefix} fields of
+## @code{pkg ("list", @var{pkgname})}.  Only directories below one of those
+## roots are returned.  A directory added from anywhere else is reported with a
+## warning rather than silently kept or silently dropped: it means the package
+## put something on the load path that does not belong to it, which is a defect
+## worth seeing.
+##
+## @code{[@var{dirlist}, @var{depinfo}] = package_paths (@var{pkgname})} also
+## returns @var{depinfo}, a cell array of structures with the fields
+## @qcode{name}, @qcode{version} and @qcode{dirs}, one per dependency, in the
+## order they were loaded.  Dependencies on core Octave itself are not
+## dependencies on a package and are skipped.
+##
+## Note that this function changes the interpreter's state: on return
+## @var{pkgname} and its whole dependency closure are loaded, and any package
+## in that closure which was loaded on entry has been unloaded and reloaded.
+## That is unavoidable, since the load path cannot be measured without moving
+## it, and it is the reason this belongs in a scanning run rather than in an
+## interactive session.
+##
+## @end deftypefn
+
+function [dirlist, depinfo] = package_paths (pkgname)
+
+  ## Input validation
+  if (nargin != 1)
+    error ("package_paths: invalid number of input arguments.");
+  endif
+  if (! (ischar (pkgname) && isrow (pkgname)))
+    error ("package_paths: PKGNAME must be a character vector.");
+  endif
+  if (isempty (pkg ('list', pkgname)))
+    error ("package_paths: '%s' is not an installed package.", pkgname);
+  endif
+
+  ## Resolve the dependency closure, dependencies before dependents
+  loadOrder = dependencyOrder (pkgname, {}, {});
+
+  ## Unload the closure, dependents first; unloading a dependency out of order
+  ## is refused, and unloading what is not loaded is a no-op.
+  for ii = numel (loadOrder):-1:1
+    pkg ('unload', loadOrder{ii});
+  endfor
+
+  ## Load one package at a time, measuring each against the path as it stands
+  ## once its own dependencies are already in place
+  dirlist = {};
+  depinfo = {};
+  for ii = 1:numel (loadOrder)
+    thisName = loadOrder{ii};
+    before = pathEntries ();
+    pkg ('load', thisName);
+    after = pathEntries ();
+    added = after(! ismember (after, before));
+
+    ownDirs = belowRoots (after, packageRoots (thisName));
+    foreign = added(! ismember (added, ownDirs));
+    if (! isempty (foreign))
+      warning (strcat ("package_paths: '%s' added %d load path", ...
+                       " director%s outside its own installation tree: %s"), ...
+               thisName, numel (foreign), ternary (numel (foreign) == 1, ...
+               'y', 'ies'), strjoin (foreign, ", "));
+    endif
+
+    if (strcmp (thisName, pkgname))
+      dirlist = ownDirs;
+    else
+      info = pkg ('list', thisName);
+      record = struct ('name', thisName, 'version', info{1}.version);
+      record.dirs = ownDirs;
+      depinfo{end+1} = record;
+    endif
+  endfor
+
+endfunction
+
+## Post-order walk of the dependency graph, so that every package is listed
+## after the packages it depends on.  ORDER carries the packages already
+## placed, STACK the ones being resolved, which is what detects a cycle.
+function order = dependencyOrder (pkgname, order, stack)
+
+  if (any (strcmp (order, pkgname)))
+    return;
+  endif
+  if (any (strcmp (stack, pkgname)))
+    error ("package_paths: circular dependency involving '%s'.", pkgname);
+  endif
+  stack{end+1} = pkgname;
+
+  info = pkg ('list', pkgname);
+  if (isempty (info))
+    error (strcat ("package_paths: dependency '%s' is not installed."), ...
+           pkgname);
+  endif
+
+  dependencies = info{1}.depends;
+  for ii = 1:numel (dependencies)
+    thisDep = dependencies{ii}.package;
+    if (any (strcmp (thisDep, {'octave', 'pkg'})))
+      continue;
+    endif
+    order = dependencyOrder (thisDep, order, stack);
+  endfor
+  order{end+1} = pkgname;
+
+endfunction
+
+## The load path, canonicalized so that entries compare by identity rather than
+## by spelling.
+function entries = pathEntries ()
+
+  entries = strsplit (path (), pathsep ());
+  for ii = 1:numel (entries)
+    canonical = canonicalize_file_name (entries{ii});
+    if (! isempty (canonical))
+      entries{ii} = canonical;
+    endif
+  endfor
+
+endfunction
+
+## The installation directories of a package.  A package may keep its compiled
+## files apart from its m-files, so both roots are needed.
+function roots = packageRoots (pkgname)
+
+  info = pkg ('list', pkgname);
+  roots = {info{1}.dir, info{1}.archprefix};
+  for ii = 1:numel (roots)
+    canonical = canonicalize_file_name (roots{ii});
+    if (! isempty (canonical))
+      roots{ii} = canonical;
+    endif
+  endfor
+  roots = unique (roots);
+
+endfunction
+
+## Select the entries that lie at or below one of ROOTS.  Matching is on whole
+## path components, so that "pkg-1.0.1" is not taken to be below "pkg-1.0".
+function entries = belowRoots (entries, roots)
+
+  keep = false (size (entries));
+  for ii = 1:numel (roots)
+    thisRoot = roots{ii};
+    prefix = [thisRoot filesep()];
+    keep |= strcmp (entries, thisRoot);
+    keep |= strncmp (entries, prefix, numel (prefix));
+  endfor
+  entries = entries(keep);
+
+endfunction
+
+## Pick one of two values, to keep a message readable at its point of use.
+function out = ternary (TF, yes, no)
+
+  if (TF)
+    out = yes;
+  else
+    out = no;
+  endif
+
+endfunction
+
+%!error<package_paths: invalid number of input arguments.> package_paths ()
+%!error<package_paths: PKGNAME must be a character vector.> package_paths (5)
+%!error<package_paths: PKGNAME must be a character vector.> ...
+%! package_paths ({'statistics'})
+%!error<package_paths: PKGNAME must be a character vector.> ...
+%! package_paths (['ab'; 'cd'])
+%!error<package_paths: 'no_such_package_here' is not an installed package.> ...
+%! package_paths ('no_such_package_here')

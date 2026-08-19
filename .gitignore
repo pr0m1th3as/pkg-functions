@@ -1,0 +1,15 @@
+# Fetched at run time, never committed: the index is the packages repo's, and
+# a stale copy here would silently decide what gets harvested.
+/packages.json
+
+# Per-run scratch.  Records reach the data set through the collect job, which
+# files them under data/<package>/<version>.json; anything left in these
+# directories is a by-product of the run that produced it.
+/out/
+/incoming/
+
+*~
+octave-workspace
+
+__pycache__/
+*.pyc

@@ -92,6 +92,7 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir)
   ## in this order nothing a package contributes can be counted as part of core,
   ## whatever the session already held.
   coreNames = coreFunctionNames ();
+  writeCoreRecord (outdir, coreNames);
 
   ## Seed the record from the index, so that a failure at any later stage is
   ## still reported against a release that can be identified
@@ -185,6 +186,35 @@ function names = coreFunctionNames ()
 
   [~, contents] = scan_functions (coreDirectories ());
   names = union (loadPathNames (contents), __builtins__ ());
+
+endfunction
+
+## Record core Octave's own names as one more provider in the data set.
+##
+## Core is not fixed.  Functions enter and leave it between releases, so a
+## package can begin shadowing one without changing at all -- core need only
+## gain the name.  Stored this way, that shows up as a change to core rather
+## than being silently attributed to the package, and any release already held
+## can have its shadowing recomputed against a core it was never measured
+## against, without installing anything again.
+##
+## The date is the day the measurement was made, not a release date, which is
+## not something the interpreter can tell us.  It reads as "from when we began
+## measuring against this core", which is what it is.
+function writeCoreRecord (outdir, coreNames)
+
+  record = struct ('package', '__core__', 'version', version (), ...
+                   'date', datestr (now (), 'yyyy-mm-dd'), ...
+                   'octave', version (), 'status', 'ok', 'message', '');
+  record.names = coreNames(:)';
+
+  outfile = fullfile (outdir, '__core__.json');
+  fid = fopen (outfile, 'w');
+  if (fid < 0)
+    error ("harvest_package: cannot write '%s'.", outfile);
+  endif
+  fputs (fid, jsonencode (record));
+  fclose (fid);
 
 endfunction
 

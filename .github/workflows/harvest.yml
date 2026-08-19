@@ -45,7 +45,7 @@ jobs:
         run: python3 .github/scripts/plan.py
 
       - name: Upload the index
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: package-index
           path: packages.json
@@ -63,7 +63,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Download the index
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: package-index
 
@@ -109,7 +109,7 @@ jobs:
           done
 
       - name: Upload the records
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: records-${{ matrix.shard }}
           path: out/*.json
@@ -125,7 +125,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Download every shard
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: records-*
           path: incoming
@@ -135,7 +135,7 @@ jobs:
       # and the index is the authority on that.  Without it the merge falls
       # back to release dates, which is a guess.
       - name: Download the index
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: package-index
 
@@ -165,7 +165,7 @@ jobs:
           git push
 
       - name: Upload the data set
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: functions-data
           path: data

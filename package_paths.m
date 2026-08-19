@@ -163,13 +163,27 @@ endfunction
 function roots = packageRoots (pkgname)
 
   info = pkg ('list', pkgname);
-  roots = {info{1}.dir, info{1}.archprefix};
-  for ii = 1:numel (roots)
-    canonical = canonicalize_file_name (roots{ii});
-    if (! isempty (canonical))
-      roots{ii} = canonical;
+  candidates = {info{1}.dir, info{1}.archprefix};
+  roots = {};
+  for ii = 1:numel (candidates)
+    thisRoot = candidates{ii};
+    ## A package shipping no compiled code can report an empty "archprefix",
+    ## and an empty root would be turned into the prefix "/" below, which every
+    ## absolute path starts with -- so the whole load path, core Octave and the
+    ## current directory included, would be credited to the package.
+    if (! (ischar (thisRoot) && ! isempty (thisRoot)))
+      continue;
     endif
+    canonical = canonicalize_file_name (thisRoot);
+    if (! isempty (canonical))
+      thisRoot = canonical;
+    endif
+    roots{end+1} = thisRoot;
   endfor
+  if (isempty (roots))
+    error (strcat ("package_paths: '%s' reports no installation", ...
+                   " directory to measure against."), pkgname);
+  endif
   roots = unique (roots);
 
 endfunction
@@ -181,6 +195,9 @@ function entries = belowRoots (entries, roots)
   keep = false (size (entries));
   for ii = 1:numel (roots)
     thisRoot = roots{ii};
+    if (isempty (thisRoot))
+      continue;   # "/" as a prefix would match every absolute path
+    endif
     prefix = [thisRoot filesep()];
     keep |= strcmp (entries, thisRoot);
     keep |= strncmp (entries, prefix, numel (prefix));

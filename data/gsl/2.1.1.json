@@ -1,1 +1,1 @@
-{"message":"container exited without writing a record","package":"gsl","status":"runner-failed","version":"2.1.1"}
+{"date":"2018-06-18","dependencies":[],"dropped_core_paths":[],"installed_as":"","message":"pkg: error running the configure script for gsl.","octave":"4.4.0","package":"gsl","resolution":{"asof":"2018-06-18","asof_implied":true,"backfill":true,"policy":"asof","requested":""},"sha256":"","status":"install-failed","url":"https://downloads.sourceforge.net/project/octave/Octave%20Forge%20Packages/Individual%20Package%20Releases/gsl-2.1.1.tar.gz","version":"2.1.1"}

@@ -125,7 +125,7 @@ function [json, S] = scan_functions (dirlist)
     thisName = candidates{ii,1};
     thisFile = candidates{ii,2};
     isNamespaced = any (thisName == '.');
-    metaClass = meta.class.fromName (thisName);
+    metaClass = classOrEmpty (thisName);
     if (! isempty (metaClass))
       record = classRecord (thisName, thisFile, metaClass);
       if (isNamespaced)
@@ -185,6 +185,24 @@ function [json, S] = scan_functions (dirlist)
   else
     json = '';
   endif
+
+endfunction
+
+## Ask the interpreter whether a name is a class, and take "no" for an answer
+## however it is delivered.
+##
+## Octave 7 and later return an empty value for a name that is not a class.
+## Octave 4 raises "class not found" instead, and Octave 5 goes as far as
+## loading oct-files to decide, which in the published 5.1.0 and 5.2.0 images
+## fails on an undefined symbol in "__init_qt__.oct" and takes the interpreter
+## down with it.  Every one of those means the same thing here: not a class.
+function metaClass = classOrEmpty (thisName)
+
+  try
+    metaClass = meta.class.fromName (thisName);
+  catch
+    metaClass = [];
+  end_try_catch
 
 endfunction
 

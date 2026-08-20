@@ -1,0 +1,159 @@
+{
+ "releases": [
+  {
+   "date": "2015-05-23",
+   "digest": "sha256:9ece1ea55a65e4c8449506428ae8ee5ff6f598c9365db09bfd6c826d80ec87d3",
+   "version": "4.0.0"
+  },
+  {
+   "date": "2016-03-21",
+   "digest": "sha256:901df0fe96a01ae222bb4c3c5e69f83d9228029afda1258113ee9815c3865e9b",
+   "version": "4.0.1"
+  },
+  {
+   "date": "2016-04-20",
+   "digest": "sha256:8e69cae4278b4f7ab3b736bb536fa7507b902e952c19a801cb9873db24710fcd",
+   "version": "4.0.2"
+  },
+  {
+   "date": "2016-07-01",
+   "digest": "sha256:694ccb62ebefe7244cf163ad25dd9aa1efcd2b2f4e207724a407103522f5ef96",
+   "version": "4.0.3"
+  },
+  {
+   "date": "2016-11-13",
+   "digest": "sha256:37bdd61cb5c699e4500770551ae407d68bc9d9e4d0d1d87944acb77f552337a0",
+   "version": "4.2.0"
+  },
+  {
+   "date": "2017-02-22",
+   "digest": "sha256:cf90d9d4a5869a905f6e779c203c21338918e9e8066baec14377b1987ef84518",
+   "version": "4.2.1"
+  },
+  {
+   "date": "2018-03-13",
+   "digest": "sha256:108058385de2f29a681ab5b5aabd7ef41a69e162f5620b85093bb47518bc7bc9",
+   "version": "4.2.2"
+  },
+  {
+   "date": "2018-04-30",
+   "digest": "sha256:1af6af64330b155c48802d2eb397a8d0ed7cc1115a1b94f3c269128929c17458",
+   "version": "4.4.0"
+  },
+  {
+   "date": "2018-08-09",
+   "digest": "sha256:37d555fa9a23bec82c5be3f08b4ff2a4d773f1a5f794c7982d9e5b535b7448ac",
+   "version": "4.4.1"
+  },
+  {
+   "date": "2019-02-23",
+   "digest": "sha256:b150a5439f4277c4699c09fba316278cdbf8a60678889a728d760fdbb80f4e83",
+   "version": "5.1.0"
+  },
+  {
+   "date": "2020-01-28",
+   "digest": "sha256:b1d9a3e3aa8f4e36680872efbf43a723f3010ff4e8811a2bbbdf3accc610b27d",
+   "version": "5.2.0"
+  },
+  {
+   "date": "2020-11-26",
+   "digest": "sha256:16e6ea115e4e54558c7f08a2b5a16fbad893aceca2ccbe36c76a68470e63ceea",
+   "version": "6.1.0"
+  },
+  {
+   "date": "2021-02-19",
+   "digest": "sha256:8f5b2ef17b5ff6863644d59a30d51bf10d2b5bcdd82e4d2f09bdf06c332a668a",
+   "version": "6.2.0"
+  },
+  {
+   "date": "2021-07-11",
+   "digest": "sha256:84313201b820f797733a9eef55acfb2ad664e28240b3032f9c73a43c98a3f91e",
+   "version": "6.3.0"
+  },
+  {
+   "date": "2021-10-30",
+   "digest": "sha256:e959f4b61651ac9b8125a18a0586b3f3ad56b623350e8afe956fc323c3b9680d",
+   "version": "6.4.0"
+  },
+  {
+   "date": "2022-04-06",
+   "digest": "sha256:364973f552b969353a95dd3ea1fad73177cdbebc8714d8c326ecd3d55e1f5af4",
+   "version": "7.1.0"
+  },
+  {
+   "date": "2022-07-28",
+   "digest": "sha256:b0f013a485435b3615c1f3c81187e641b057c0c055404bf295cb35419fc73182",
+   "version": "7.2.0"
+  },
+  {
+   "date": "2022-11-02",
+   "digest": "sha256:b87f3c58ffcfa64928cd19eec3699c302f0d3a406778d418f2165cd38afd9618",
+   "version": "7.3.0"
+  },
+  {
+   "date": "2023-03-07",
+   "digest": "sha256:41f9e0fa93989adc6350c9f00f1aca25551be59c1aabaa3d970f6b0835321f09",
+   "version": "8.1.0"
+  },
+  {
+   "date": "2023-04-13",
+   "digest": "sha256:5b98802eda4aead6e064b614df370bd0bd6cc3746976815aea01e68584a69f04",
+   "version": "8.2.0"
+  },
+  {
+   "date": "2023-08-08",
+   "digest": "sha256:0797d8fe822b43dfa1a4fd5e84b501f9bb160616171328042dfeb4ad97077661",
+   "version": "8.3.0"
+  },
+  {
+   "date": "2023-11-05",
+   "digest": "sha256:a24909a6da47fe3af8f162a221e046797a877af9170d3b724f09790b9717827c",
+   "version": "8.4.0"
+  },
+  {
+   "date": "2024-03-12",
+   "digest": "sha256:c091560f51a81e114df8afbf16a8e9997daa225007fac4f348824371926d769f",
+   "version": "9.1.0"
+  },
+  {
+   "date": "2024-06-01",
+   "digest": "sha256:100d394c57b86469748d26ddafcf73a1074338a66dabcababe2e4e05146772b9",
+   "version": "9.2.0"
+  },
+  {
+   "date": "2024-12-12",
+   "digest": "sha256:27421fbd06141269cab390029148300748e3adc5eed25ecf4a2051eaba26877a",
+   "version": "9.3.0"
+  },
+  {
+   "date": "2025-02-05",
+   "digest": "sha256:f8be6269b4783a9828cf2141a4388fd194f8f0be8a8e193c3ec388a6318be973",
+   "version": "9.4.0"
+  },
+  {
+   "date": "2025-03-25",
+   "digest": "sha256:72c8a73daac5527c08df52f81b47c52c1926c8f52e198ec16c7c3c76a087d0f1",
+   "version": "10.1.0"
+  },
+  {
+   "date": "2025-05-29",
+   "digest": "sha256:5485710044881fd4dc4f5c04bfd50b20d3cd1399740eb6023015125a07eb2a34",
+   "version": "10.2.0"
+  },
+  {
+   "date": "2025-09-23",
+   "digest": "sha256:c06b163270f876df502f83a8043c3800939b1aa6e2ae3642f68f945a6bc1835f",
+   "version": "10.3.0"
+  },
+  {
+   "date": "2026-02-18",
+   "digest": "sha256:7e7b06e4474bc1b3c842fcf0fcb294ae9ae9688857444fc71f40624194945400",
+   "version": "11.1.0"
+  },
+  {
+   "date": "2026-06-01",
+   "digest": "sha256:b22abbe607c15ed821521ab9cf8a7c466dc47506730a0de9503bd554731b3e32",
+   "version": "11.3.0"
+  }
+ ]
+}

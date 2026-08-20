@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Decide which packages this run has to harvest, and shard them.
 
-Only the newest release of each package is ever harvested.  Older releases are
-left alone deliberately: the index offers no way to resolve a dependency to the
-version that was current when an old release was cut, so installing one today
-would build it against today's dependencies -- a combination that never existed
-and whose measurements would be historically false.  History is instead
-accumulated forwards, by never overwriting the record of a release once it has
-been measured.
+Only the newest release of each package is harvested here.  This is the sweep
+that keeps up with the present; the past is swept by history.py, which resolves
+a whole closure as of the day a release shipped and measures it under the
+Octave of that day.  Sending an old release through this planner instead would
+build it against today's dependencies, a combination that never existed.
 """
 
 import json

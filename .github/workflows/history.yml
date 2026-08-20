@@ -1,0 +1,187 @@
+name: Harvest past package releases
+
+# Dispatch only.  This is the sweep that rebuilds the past, not the one that
+# keeps up with the present, and it is meant to be run deliberately and rarely.
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Space separated package names; empty sweeps all'
+        required: false
+        default: ''
+      min_octave:
+        description: 'Skip releases whose era Octave is older than this'
+        required: false
+        default: '7.1.0'
+      limit:
+        description: 'Stop after this many releases; 0 means all'
+        required: false
+        default: '0'
+
+permissions:
+  contents: read
+
+# The data set has one writer at a time.  The collect job rebases and retries,
+# so a race would not lose anything, but a sweep of this length overlapping
+# itself would measure the same releases twice for no gain.
+concurrency:
+  group: harvest-data
+  cancel-in-progress: false
+
+env:
+  SHARDS: 8
+
+jobs:
+
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fetch the package index
+        run: curl -fsSL -o packages.json
+             https://gnu-octave.github.io/packages/packages.json
+
+      - name: Decide what to harvest
+        id: plan
+        env:
+          REQUESTED: ${{ github.event.inputs.packages }}
+          MIN_OCTAVE: ${{ github.event.inputs.min_octave }}
+          LIMIT: ${{ github.event.inputs.limit }}
+        run: python3 .github/scripts/history.py
+
+      - name: Upload the index
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-index
+          path: packages.json
+
+  harvest:
+    needs: plan
+    if: ${{ needs.plan.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the index
+        uses: actions/download-artifact@v8
+        with:
+          name: package-index
+
+      # One image for the whole shard, which is why the shards are cut by era.
+      - name: Pull the Octave image
+        run: docker pull "${{ matrix.image }}"
+
+      - name: Harvest
+        run: |
+          mkdir -p out
+          for item in ${{ matrix.items }}
+          do
+            p="${item%@*}"
+            v="${item##*@}"
+            echo "::group::harvest $p $v on Octave ${{ matrix.octave }}"
+            # Pinning the version alone resolves the whole closure as of the
+            # day that release shipped, which is the point of the exercise.
+            timeout 25m docker run --rm \
+              --volume="$(pwd):/workdir:rw" \
+              --workdir=/workdir \
+              "${{ matrix.image }}" \
+              octave-cli --eval "addpath ('/workdir'); \
+                harvest_package ('$p', '/workdir/packages.json', \
+                                 '/workdir/out', 'version', '$v');" || true
+            if [ ! -f "out/$p.json" ]
+            then
+              # The version is known here without consulting the index, since
+              # it is what this job was asked to measure in the first place.
+              jq -n --arg p "$p" --arg v "$v" \
+                '{package: $p, version: $v, status: "runner-failed",
+                  message: "container exited without writing a record"}' \
+                > "out/$p.json"
+              echo "::error::$p $v: runner-failed"
+            fi
+            # One release per file.  A sweep measures many releases of the same
+            # package, and they would otherwise overwrite one another.
+            mv "out/$p.json" "out/$p@$v.json"
+            echo "::endgroup::"
+          done
+          # Likewise for core: shards of different eras measure different
+          # cores, and every one of them is written to the same name.
+          if [ -f out/__core__.json ]
+          then
+            mv out/__core__.json "out/__core__@${{ matrix.octave }}.json"
+          fi
+
+      - name: Upload the records
+        uses: actions/upload-artifact@v7
+        with:
+          name: records-${{ matrix.shard }}
+          path: out/*.json
+
+  collect:
+    needs: [plan, harvest]
+    if: ${{ always() && needs.plan.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download every shard
+        uses: actions/download-artifact@v8
+        with:
+          pattern: records-*
+          path: incoming
+          merge-multiple: true
+
+      - name: Download the index
+        uses: actions/download-artifact@v8
+        with:
+          name: package-index
+
+      - name: Merge into the data set
+        run: python3 .github/scripts/merge.py
+
+      - name: Upload the data set
+        uses: actions/upload-artifact@v7
+        with:
+          name: functions-data
+          path: data
+
+      - name: Commit the data set
+        run: |
+          if [ ! -d data ]
+          then
+            echo "Nothing was harvested."
+            exit 0
+          fi
+          git add -A data
+          if git diff --cached --quiet
+          then
+            echo "No change."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "data: harvest past package releases"
+          for attempt in 1 2 3
+          do
+            if git push
+            then
+              exit 0
+            fi
+            echo "Push rejected; rebasing onto the current main."
+            git pull --rebase origin main
+          done
+          echo "::error::could not push the data set after three attempts"
+          exit 1

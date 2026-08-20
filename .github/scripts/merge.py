@@ -26,6 +26,7 @@ import re
 
 DATA = "data"
 CORE = "__core__"
+IMAGES = os.path.join(".github", "octave-images.json")
 SAFE_VERSION = re.compile(r"^[A-Za-z0-9._+-]+$")
 
 # The categories scan_functions reports, and the kind each entry is recorded
@@ -58,8 +59,24 @@ def save(path, obj):
         fid.write("\n")
 
 
+def octave_release_dates():
+    """The day each Octave release was published, by version.
+
+    Empty when the table is absent, which leaves every record dated as it was
+    measured -- the behaviour before there was a table to consult.
+    """
+    try:
+        with open(IMAGES) as fid:
+            table = json.load(fid)
+    except (OSError, ValueError):
+        return {}
+    return {r["version"]: r["date"] for r in table.get("releases") or []
+            if r.get("version") and r.get("date")}
+
+
 def store_incoming():
     """File each incoming record under its own provider and version."""
+    release_dates = octave_release_dates()
     stored = 0
     for path in sorted(glob.glob(os.path.join("incoming", "*.json"))):
         record = load(path)
@@ -74,6 +91,15 @@ def store_incoming():
             print(f"::warning::{package}: no usable version, ignored "
                   f"({record.get('status')}: {record.get('message', '')})")
             continue
+        if package == CORE and version in release_dates:
+            # A core record is stamped with the day it was measured: today for
+            # the scheduled sweep, the day being reconstructed for a historical
+            # one.  Neither is the day that core became the ecosystem's core,
+            # and the timeline wants that one -- dated by its release, a core
+            # sits ahead of every package published after it however late it
+            # came to be measured, and it stops moving every time it is
+            # measured again.
+            record["date"] = release_dates[version]
         save(os.path.join(DATA, package, version + ".json"), record)
         stored += 1
     return stored

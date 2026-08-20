@@ -178,6 +178,21 @@ function roots = packageRoots (pkgname)
     if (! isempty (canonical))
       thisRoot = canonical;
     endif
+    ## A root has to be the package's own directory and not somewhere above
+    ## it.  Octave 7.1.0 reports a root that sits above core Octave and above
+    ## every installed package alike, and taking it at its word credits the
+    ## package with the lot: one measured release claimed 881 core functions,
+    ## and 26 more belonging to its own dependency.  Both roots are laid out as
+    ## "<somewhere>/<name>-<version>", so a final component that does not begin
+    ## with this package's name and a hyphen belongs to something else.
+    [~, base, ext] = fileparts (strip_trailing_filesep (thisRoot));
+    base = [base ext];
+    if (! strncmp (base, [pkgname '-'], numel (pkgname) + 1))
+      warning (strcat ("package_paths: '%s' reports an installation", ...
+                       " directory that is not its own, ignored: %s"), ...
+               pkgname, thisRoot);
+      continue;
+    endif
     roots{end+1} = thisRoot;
   endfor
   if (isempty (roots))
@@ -203,6 +218,16 @@ function entries = belowRoots (entries, roots)
     keep |= strncmp (entries, prefix, numel (prefix));
   endfor
   entries = entries(keep);
+
+endfunction
+
+## A trailing separator would leave fileparts with an empty final component.
+function out = strip_trailing_filesep (in)
+
+  out = in;
+  while (numel (out) > 1 && strcmp (out(end), filesep ()))
+    out(end) = [];
+  endwhile
 
 endfunction
 

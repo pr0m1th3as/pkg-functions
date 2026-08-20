@@ -1,0 +1,12 @@
+Name: pkgfixrenamed
+Version: 1.0.0
+Date: 2026-08-20
+Title: Fixture package C, under the name it was renamed from
+Author: The pkg-functions authors
+Maintainer: The pkg-functions authors
+Description: A fixture whose declared name is not the name the index lists it
+ by, as every statistics-resampling up to 5.4.3 installed itself as
+ statistics-bootstrap.  Measured by the index name it cannot be found at all.
+Categories: Fixtures
+License: GPL-3.0+
+Depends: octave (>= 6.1.0)

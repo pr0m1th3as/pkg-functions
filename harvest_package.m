@@ -53,6 +53,11 @@
 ## Both are measured against a load path read before anything was installed or
 ## loaded, so nothing the package itself contributes can be counted as core.
 ##
+## A release that registers itself under a name other than the one the index
+## lists it by is measured under the name it actually used, and the divergence
+## is recorded in @qcode{installed_as}; the record is still filed under the
+## index name, which is the identity the rest of the ecosystem knows it by.
+##
 ## System dependencies declared in the index for Ubuntu are installed with
 ## @code{apt-get} before the packages are, which needs the runner to allow
 ## @code{sudo} without a password.  A package already installed at the version
@@ -198,6 +203,7 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
                                                                  pkgname).id));
   record.dependencies = {};
   record.dropped_core_paths = {};
+  record.installed_as = '';
   outfile = fullfile (outdir, [pkgname '.json']);
 
   if (! isInstallable (entry))
@@ -208,11 +214,15 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
   endif
 
   ## Install the dependency closure, dependencies before dependents
+  targetName = pkgname;
   try
     closure = resolveClosure (index, pkgname, {}, {}, selector);
     installSystemDependencies (index, closure, selector);
     for ii = 1:numel (closure)
-      installPackage (index, closure{ii}, selector);
+      thisName = installPackage (index, closure{ii}, selector);
+      if (strcmp (closure{ii}, pkgname))
+        targetName = thisName;
+      endif
     endfor
   catch err
     record.status = 'install-failed';
@@ -223,7 +233,11 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
 
   ## Measure and scan
   try
-    [dirlist, depinfo] = package_paths (pkgname);
+    if (! strcmp (targetName, pkgname))
+      record.installed_as = targetName;
+      printf ("::warning::%s installs itself as '%s'\n", pkgname, targetName);
+    endif
+    [dirlist, depinfo] = package_paths (targetName);
     [dirlist, record.dropped_core_paths] = withoutCoreDirectories (dirlist);
     if (! isempty (record.dropped_core_paths))
       printf ("::warning::%s: %d directory(ies) inside the interpreter's own \
@@ -604,15 +618,46 @@ function installSystemDependencies (index, closure, selector)
 endfunction
 
 ## Install one package from the index, unless the version it names is already
-## installed.
-function installPackage (index, pkgname, selector)
+## installed, and report the name it registered itself under.
+function installedName = installPackage (index, pkgname, selector)
 
   entry = selectEntry (index, pkgname, selector);
   installed = pkg ('list', pkgname);
   if (! isempty (installed) && strcmp (installed{1}.version, entry.id))
+    installedName = pkgname;
     return;
   endif
+  before = installedNames ();
   pkg ('install', entry.url);
+  installedName = registeredName (before, pkgname);
+
+endfunction
+
+## The packages "pkg" knows about, by name.
+function names = installedNames ()
+
+  info = pkg ('list');
+  names = cell (1, numel (info));
+  for ii = 1:numel (info)
+    names{ii} = info{ii}.name;
+  endfor
+
+endfunction
+
+## The name a release registered itself under, which is not always the name the
+## index lists it by.  A package may rename itself and keep its index entry:
+## every "statistics-resampling" up to 5.4.3 installs as
+## "statistics-bootstrap", and measuring it by the name the index uses finds
+## nothing installed at all.  The name that appeared is the one to measure by;
+## if none did, or more than one, the index name is the best answer available.
+function name = registeredName (before, pkgname)
+
+  added = setdiff (installedNames (), before);
+  if (numel (added) == 1)
+    name = added{1};
+  else
+    name = pkgname;
+  endif
 
 endfunction
 
@@ -760,12 +805,14 @@ endfunction
 %!       fullfile (root, 'fixtures'));
 %!  tar (fullfile (tmp, 'pkgfixb-1.0.0.tar.gz'), {'pkgfixb'}, ...
 %!       fullfile (root, 'fixtures'));
+%!  tar (fullfile (tmp, 'pkgfixc-1.0.0.tar.gz'), {'pkgfixc'}, ...
+%!       fullfile (root, 'fixtures'));
 %!  pkg ('prefix', fullfile (tmp, 'prefix'), fullfile (tmp, 'arch'));
 %!  pkg ('local_list', fullfile (tmp, 'octave_packages'));
 %!endfunction
 
 %!function __fixture_remove__ (state, tmp)
-%!  for name = {'pkgfixb', 'pkgfixa'}
+%!  for name = {'pkgfixb', 'pkgfixa', 'pkgfixrenamed'}
 %!    try
 %!      pkg ('unload', name{1});
 %!    catch
@@ -786,8 +833,10 @@ endfunction
 %!  depa = '"depends":["octave (>= 6.1.0)","pkg"]}';
 %!  depb = ['"depends":["octave (>= 6.1.0)","pkgfixa (>= 1.0.0)",' ...
 %!          '"pkg"]}'];
+%!  urlc = sprintf ('"url":"%s",', fullfile (tmp, 'pkgfixc-1.0.0.tar.gz'));
 %!  __write__ (fname, ['{"pkgfixa":{"versions":[' head urla depa ']},' ...
-%!                     '"pkgfixb":{"versions":[' head urlb depb ']}}']);
+%!                     '"pkgfixb":{"versions":[' head urlb depb ']},' ...
+%!                     '"pkgfixc":{"versions":[' head urlc depa ']}}']);
 %!endfunction
 
 ## The install and scan path, end to end: a release is installed from the
@@ -837,6 +886,41 @@ endfunction
 %!   assert_equal (isempty (record.dropped_core_paths), true);
 %!   core = jsondecode (fileread (fullfile (tmp, '__core__.json')));
 %!   assert_equal (core.version, version ());
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+## A release that registers itself under another name is measured under that
+## name, and the record says so while staying filed under the index name.
+## pkgfixc declares itself "pkgfixrenamed", as statistics-resampling declared
+## itself statistics-bootstrap until 5.4.4; measured by the index name it
+## cannot be found installed at all.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   idxFile = fullfile (tmp, 'index.json');
+%!   __fixture_index__ (idxFile, tmp);
+%!   harvest_package ('pkgfixc', idxFile, tmp);
+%!   record = jsondecode (fileread (fullfile (tmp, 'pkgfixc.json')));
+%!   assert_equal (record.status, 'ok');
+%!   assert_equal (record.package, 'pkgfixc');
+%!   assert_equal (record.installed_as, 'pkgfixrenamed');
+%!   names = arrayfun (@(x) x.name, record.contents.functions, ...
+%!                     'UniformOutput', false);
+%!   assert_equal (sort (names(:)'), {'pkgfixc_delta'});
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+## A release whose name matches the index leaves the field empty.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   idxFile = fullfile (tmp, 'index.json');
+%!   __fixture_index__ (idxFile, tmp);
+%!   harvest_package ('pkgfixa', idxFile, tmp);
+%!   record = jsondecode (fileread (fullfile (tmp, 'pkgfixa.json')));
+%!   assert_equal (record.installed_as, '');
 %! unwind_protect_cleanup
 %!   __fixture_remove__ (state, tmp);
 %! end_unwind_protect

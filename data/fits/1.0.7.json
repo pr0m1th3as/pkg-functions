@@ -1,1 +1,1 @@
-{"date":"2015-06-10","dependencies":[],"dropped_core_paths":[],"message":"pkg: error running 'make' for the fits package","octave":"11.3.0","package":"fits","resolution":{"asof":"","asof_implied":false,"backfill":false,"policy":"newest","requested":""},"sha256":[],"status":"install-failed","url":"https://downloads.sourceforge.net/project/octave/Octave%20Forge%20Packages/Individual%20Package%20Releases/fits-1.0.7.tar.gz","version":"1.0.7"}
+{"message":"container exited without writing a record","package":"fits","status":"runner-failed","version":"1.0.7"}

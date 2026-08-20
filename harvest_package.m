@@ -644,7 +644,8 @@ endfunction
 %!error<harvest_package: ASOF must be a character vector.> ...
 %! harvest_package ('a', which ('harvest_package'), tempdir (), 'asof', 5)
 %!error<harvest_package: ASOF must be a date of the form 'yyyy-mm-dd'.> ...
-%! harvest_package ('a', which ('harvest_package'), tempdir (), 'asof', '1-1-26')
+%! harvest_package ('a', which ('harvest_package'), tempdir (), 'asof', ...
+%!                  '1-1-26')
 %!error<harvest_package: unknown optional argument 'whenever'.> ...
 %! harvest_package ('a', which ('harvest_package'), tempdir (), 'whenever', 'x')
 
@@ -738,3 +739,97 @@ endfunction
 %! idxFile = fullfile (tmpDir, 'index.json');
 %! __index__ (idxFile);
 %! harvest_package ('demo', idxFile, tmpDir, 'asof', '2020-01-01');
+
+## Installing into a prefix of its own, and restoring the interpreter's real
+## one whatever happens.  package_paths carries the same pair: a test function
+## belongs to the file it is written in and cannot be shared between them.
+%!function [state, tmp] = __fixture_install__ ()
+%!  root = fileparts (which ('harvest_package'));
+%!  [state.prefix, state.archprefix] = pkg ('prefix');
+%!  state.list = pkg ('local_list');
+%!  tmp = tempname ();
+%!  mkdir (tmp);
+%!  tar (fullfile (tmp, 'pkgfixa-1.0.0.tar.gz'), {'pkgfixa'}, ...
+%!       fullfile (root, 'fixtures'));
+%!  tar (fullfile (tmp, 'pkgfixb-1.0.0.tar.gz'), {'pkgfixb'}, ...
+%!       fullfile (root, 'fixtures'));
+%!  pkg ('prefix', fullfile (tmp, 'prefix'), fullfile (tmp, 'arch'));
+%!  pkg ('local_list', fullfile (tmp, 'octave_packages'));
+%!endfunction
+
+%!function __fixture_remove__ (state, tmp)
+%!  for name = {'pkgfixb', 'pkgfixa'}
+%!    try
+%!      pkg ('unload', name{1});
+%!    catch
+%!    end_try_catch
+%!  endfor
+%!  pkg ('prefix', state.prefix, state.archprefix);
+%!  pkg ('local_list', state.list);
+%!  confirm_recursive_rmdir (false, 'local');
+%!  rmdir (tmp, 's');
+%!endfunction
+
+## An index of the fixtures, whose "url" is the tarball beside it.  "pkg" has to
+## be declared or the release counts as one "pkg" cannot install.
+%!function __fixture_index__ (fname, tmp)
+%!  head = '{"id":"1.0.0","date":"2026-08-20","sha256":"0",';
+%!  urla = sprintf ('"url":"%s",', fullfile (tmp, 'pkgfixa-1.0.0.tar.gz'));
+%!  urlb = sprintf ('"url":"%s",', fullfile (tmp, 'pkgfixb-1.0.0.tar.gz'));
+%!  depa = '"depends":["octave (>= 6.1.0)","pkg"]}';
+%!  depb = ['"depends":["octave (>= 6.1.0)","pkgfixa (>= 1.0.0)",' ...
+%!          '"pkg"]}'];
+%!  __write__ (fname, ['{"pkgfixa":{"versions":[' head urla depa ']},' ...
+%!                     '"pkgfixb":{"versions":[' head urlb depb ']}}']);
+%!endfunction
+
+## The install and scan path, end to end: a release is installed from the
+## index, measured, and recorded as providing its own function and no other.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   idxFile = fullfile (tmp, 'index.json');
+%!   __fixture_index__ (idxFile, tmp);
+%!   [outfile, status] = harvest_package ('pkgfixb', idxFile, tmp);
+%!   assert_equal (status, false);
+%!   record = jsondecode (fileread (outfile));
+%!   assert_equal (record.status, 'ok');
+%!   assert_equal (record.version, '1.0.0');
+%!   names = arrayfun (@(x) x.name, record.contents.functions, ...
+%!                     'UniformOutput', false);
+%!   assert_equal (sort (names(:)'), {'pkgfixb_gamma'});
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+## The dependency is installed and recorded, without being counted as the
+## dependent's own.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   idxFile = fullfile (tmp, 'index.json');
+%!   __fixture_index__ (idxFile, tmp);
+%!   harvest_package ('pkgfixb', idxFile, tmp);
+%!   record = jsondecode (fileread (fullfile (tmp, 'pkgfixb.json')));
+%!   assert_equal (numel (record.dependencies), 1);
+%!   assert_equal (record.dependencies(1).name, 'pkgfixa');
+%!   assert_equal (record.dependencies(1).version, '1.0.0');
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+## Nothing of core's is ever credited to a fixture that shadows none of it.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   idxFile = fullfile (tmp, 'index.json');
+%!   __fixture_index__ (idxFile, tmp);
+%!   harvest_package ('pkgfixb', idxFile, tmp);
+%!   record = jsondecode (fileread (fullfile (tmp, 'pkgfixb.json')));
+%!   assert_equal (isempty (record.core_shadowing), true);
+%!   assert_equal (isempty (record.dropped_core_paths), true);
+%!   core = jsondecode (fileread (fullfile (tmp, '__core__.json')));
+%!   assert_equal (core.version, version ());
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect

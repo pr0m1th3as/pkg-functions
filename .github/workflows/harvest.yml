@@ -2,7 +2,12 @@ name: Harvest package functions
 
 on:
   schedule:
-    - cron: '0 3 * * 0'    # Sundays, after the index site rebuilds at 01:00
+    # Twice daily.  The index is rebuilt on its own 01:00 cron and again on
+    # every push to the packages repository, so a release merged during the
+    # day is visible well before the next morning.  A run that finds nothing
+    # changed costs one short job: the harvest is skipped entirely when the
+    # plan comes back empty.
+    - cron: '0 3,15 * * *'
   workflow_dispatch:
     inputs:
       packages:

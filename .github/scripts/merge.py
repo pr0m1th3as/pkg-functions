@@ -112,9 +112,21 @@ def extension_names(record):
     return {item["name"] for item in contents.get("method_extensions") or []}
 
 
+def version_key(version):
+    """Order version strings numerically, so 9.4.0 comes before 11.3.0.
+
+    A plain string sort puts 9.4.0 last.  For a package that is only untidy,
+    but for core it decides which release is the current one, and so what every
+    package in the set is judged to shadow.  Each part is tagged with its type
+    so that a numeric part is never compared against a word.
+    """
+    parts = re.split(r"[._+-]", version or "")
+    return tuple((0, int(p), "") if p.isdigit() else (1, 0, p) for p in parts)
+
+
 def release_order(record):
     """Releases in the order they were cut, oldest first."""
-    return (record.get("date") or "", record.get("version") or "")
+    return (record.get("date") or "", version_key(record.get("version")))
 
 
 def newest_release(index, package, records):
@@ -175,7 +187,27 @@ def timeline(byname):
                            "date": record.get("date") or "",
                            "names": load_path_names(record),
                            "extensions": extension_names(record)})
-    events.sort(key=lambda e: (e["date"], e["provider"], e["version"] or ""))
+    events.sort(key=lambda e: (e["date"], e["provider"],
+                               version_key(e["version"])))
+
+    # Core is the one provider whose order is its version, not the day it was
+    # measured.  Every record carries the date of its harvest, so running a
+    # sweep under an older image writes a record for a core release that came
+    # *before* the one already held, dated today -- and replayed by date it
+    # would be applied last, become the current core, and silently re-derive
+    # every package's shadowing against an interpreter nobody is running.  An
+    # older core measured late is a fact about that release, not a change to
+    # what core is now: the record is kept, and it is its own baseline if it is
+    # the first core held, but it never displaces a newer one.
+    kept, highest = [], None
+    for event in events:
+        if event["provider"] == CORE:
+            key = version_key(event["version"])
+            if highest is not None and key <= highest:
+                continue
+            highest = key
+        kept.append(event)
+    events = kept
 
     # The earliest release held for each provider is a baseline, not an event.
     # The first sweep records every package's *current* release carrying its
@@ -253,7 +285,8 @@ def main():
             "sha256": record.get("sha256") if record else None,
             "date": record.get("date") if record else None,
             "message": record.get("message", "") if record else "",
-            "releases": sorted(r["version"] for r in records),
+            "releases": sorted((r["version"] for r in records),
+                               key=version_key),
         }
         if record is not None and record.get("status") == "ok":
             latest[package] = record
@@ -299,6 +332,8 @@ def main():
     # core has since gained; taking the harvest-time value here would leave this
     # view contradicting the changes below, which is the very confusion this
     # whole section exists to remove.
+    # The timeline leaves core at its highest version held, not at whichever
+    # record was written most recently, so this is the newest core measured.
     core_now = final_state.get(CORE, set())
     shadowed, extended, packages = {}, {}, {}
     for package in sorted(p for p in final_state if p != CORE):
@@ -328,7 +363,8 @@ def main():
     save(os.path.join(DATA, "core_shadowing.json"),
          {"current": {"functions": shadowed, "types": extended,
                       "packages": packages},
-          "core_releases": sorted(r["version"] for r in core_records),
+          "core_releases": sorted((r["version"] for r in core_records),
+                                  key=version_key),
           "history": history,
           "changes": shadowing_changes})
 

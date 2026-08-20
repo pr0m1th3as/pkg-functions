@@ -24,7 +24,15 @@ permissions:
   contents: read
 
 env:
-  OCTAVE_IMAGE: ghcr.io/gnu-octave/octave:latest
+  # Pinned by digest, and deliberately not by tag.  What "core Octave" means to
+  # this data set is whatever the container answers to, so the image is not
+  # merely where the harvest runs -- it is the measurement's reference.  A tag
+  # can be re-pushed on a newer base without the Octave version changing, and
+  # that case is invisible: the record lands in data/__core__ under the same
+  # version, overwriting the old one in place, so there is no new record for
+  # the changes ledger to attribute anything to.  A digest cannot move.
+  # Currently 11.3.0; bump it deliberately, see the drift check in "plan".
+  OCTAVE_IMAGE: ghcr.io/gnu-octave/octave@sha256:b22abbe607c15ed821521ab9cf8a7c466dc47506730a0de9503bd554731b3e32
   SHARDS: 8
 
 jobs:
@@ -37,6 +45,38 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # The pin above cannot go stale in silence.  Holding core still is the
+      # point of it, but a package that begins shadowing a name core has only
+      # just gained would go unrecorded until someone notices, so say so on
+      # every run and leave the bump to a human.  Reading the digest of :latest
+      # costs one unauthenticated request; it does not pull the image.
+      - name: Check the pinned image against :latest
+        continue-on-error: true
+        run: |
+          repo="gnu-octave/octave"
+          token="$(curl -fsSL \
+            "https://ghcr.io/token?scope=repository:$repo:pull&service=ghcr.io" \
+            | jq -r .token)"
+          # HEAD, because the digest is a response header.  Asking for the body
+          # would return whichever manifest the Accept list matched, and its
+          # own digest is not the one the tag resolves to.
+          latest="$(curl -fsSL -I \
+            -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+            "https://ghcr.io/v2/$repo/manifests/latest" \
+            | tr -d '\r' \
+            | awk 'tolower ($1) == "docker-content-digest:" {print $2}')"
+          pinned="${OCTAVE_IMAGE##*@}"
+          if [ -z "$latest" ]
+          then
+            echo "::warning::could not read the digest of :latest"
+          elif [ "$latest" != "$pinned" ]
+          then
+            echo "::warning::OCTAVE_IMAGE is behind :latest ($latest);" \
+                 "core is still measured against the pinned release"
+          fi
 
       - name: Fetch the package index
         run: curl -fsSL -o packages.json

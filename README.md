@@ -70,12 +70,40 @@ data/functions.json            name → the packages providing it
 data/collisions.json           names provided by more than one package
 ```
 
-Only the **newest** release of each package is ever harvested. The index offers
-no way to resolve a dependency to the version that was current when an older
-release was cut, so installing one today would build it against today's
-dependencies — a combination that never existed, whose measurements would be
-historically false. History therefore accumulates forwards, at no extra cost,
-from the first run.
+The scheduled sweep harvests the **newest** release of each package, and
+history accumulates forwards from the first run at no extra cost. Older
+releases are harvested separately and deliberately, by a workflow of their own:
+each is installed with its whole dependency closure resolved **as of the day it
+shipped**, under the Octave that was current on that day. Resolving those
+dependencies to today's versions would build a combination that never existed
+and file it under a version that did, which is why it is a policy and not a
+default — every record says which one produced it.
+
+## How far back this reaches
+
+Not as far as the ecosystem goes. This data set can only measure releases that
+Octave Packages still lists, and the index is a forward-looking registry rather
+than an archive.
+
+The shape of what it remembers is stark. Of the releases it lists, **32 were
+published between 2009 and 2018 — nine years — against 540 since 2022**. Eighty
+seven of its 139 packages have their entire listed history starting in 2020 or
+later, and 42 list exactly one release. `statistics` appears with 28 releases,
+the earliest dated 2020-03-23; it did not begin in 2020, and neither did
+`signal` (earliest listed 2019), `io` or `image` (2020). The tarballs that are
+missing were mostly published under Octave Forge and are not reachable from
+anything the index records.
+
+The same gap shows from the other side: fourteen listed releases declare a
+dependency whose earliest *listed* version is younger than the release itself —
+`data-smoothing` 1.3.0, from 2012, requires `optim`, whose earliest listed
+release is 2019. Those cannot be reconstructed at all, and are recorded as
+failures naming the reason.
+
+So read this as the ecosystem **as Octave Packages remembers it**: dense from
+2019 onwards, thin before that, and silent on the decade before 2015 for which
+no Octave container image exists either. A package's absence from a given year
+here is evidence about the index, not about the package.
 
 Every record carries the `sha256` of the release it describes, so a run whose
 index reports an unchanged checksum skips the package without downloading

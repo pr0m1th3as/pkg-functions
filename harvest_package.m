@@ -197,6 +197,7 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
                                                     newestEntry (index, ...
                                                                  pkgname).id));
   record.dependencies = {};
+  record.dropped_core_paths = {};
   outfile = fullfile (outdir, [pkgname '.json']);
 
   if (! isInstallable (entry))
@@ -223,6 +224,12 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
   ## Measure and scan
   try
     [dirlist, depinfo] = package_paths (pkgname);
+    [dirlist, record.dropped_core_paths] = withoutCoreDirectories (dirlist);
+    if (! isempty (record.dropped_core_paths))
+      printf ("::warning::%s: %d directory(ies) inside the interpreter's own \
+installation were dropped from the scan\n", ...
+              pkgname, numel (record.dropped_core_paths));
+    endif
     [~, contents] = scan_functions (dirlist);
     for ii = 1:numel (depinfo)
       record.dependencies{end+1} = struct ('name', depinfo{ii}.name, ...
@@ -259,8 +266,7 @@ endfunction
 ## excluding, since neither lies below the interpreter's installation roots.
 function dirs = coreDirectories ()
 
-  roots = {fullfile(OCTAVE_HOME (), 'share', 'octave', version ()), ...
-           fullfile(OCTAVE_HOME (), 'lib', 'octave', version ())};
+  roots = coreRoots ();
   entries = strsplit (path (), pathsep ());
   keep = false (size (entries));
   for ii = 1:numel (roots)
@@ -270,6 +276,39 @@ function dirs = coreDirectories ()
   sitepart = [filesep() 'site' filesep()];
   keep &= cellfun (@(x) isempty (strfind (x, sitepart)), entries);
   dirs = entries(keep);
+
+endfunction
+
+## The interpreter's own installation roots.  Nothing below them belongs to a
+## package: a package installs under "share/octave/packages".
+function roots = coreRoots ()
+
+  roots = {fullfile(OCTAVE_HOME (), 'share', 'octave', version ()), ...
+           fullfile(OCTAVE_HOME (), 'lib', 'octave', version ())};
+
+endfunction
+
+## Drop the directories that lie inside the interpreter's own installation.
+##
+## A package cannot own one, so a load path difference that reports it has
+## measured something other than the package.  Octave 7.1.0 was seen to drop
+## core's directories and restore them across an unload and reload, which made
+## the difference credit 881 core functions to whichever package was loading;
+## the record then showed the package shadowing half of core.  Anything below a
+## "site" directory is excluded from the test, exactly as it is when core's own
+## names are gathered: it was added locally and is not part of the interpreter.
+function [dirs, dropped] = withoutCoreDirectories (dirs)
+
+  roots = coreRoots ();
+  isCore = false (size (dirs));
+  for ii = 1:numel (roots)
+    prefix = [roots{ii} filesep()];
+    isCore |= strncmp (dirs, prefix, numel (prefix));
+  endfor
+  sitepart = [filesep() 'site' filesep()];
+  isCore &= cellfun (@(x) isempty (strfind (x, sitepart)), dirs);
+  dropped = dirs(isCore);
+  dirs = dirs(! isCore);
 
 endfunction
 
@@ -641,6 +680,7 @@ endfunction
 %!   assert_equal (record.version, '2.0');
 %!   assert_equal (record.resolution.policy, 'newest');
 %!   assert_equal (record.resolution.backfill, false);
+%!   assert_equal (isempty (record.dropped_core_paths), true);
 %! unwind_protect_cleanup
 %!   confirm_recursive_rmdir (false, 'local');
 %!   rmdir (tmpDir, 's');

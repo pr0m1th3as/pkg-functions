@@ -23,6 +23,7 @@ and measures everything belonging to it.
 
 import json
 import os
+import re
 import sys
 
 import plan
@@ -44,7 +45,49 @@ def version_key(version):
     return tuple(parts)
 
 
-def era_of(releases, when):
+OCTAVE_CONSTRAINT = re.compile(
+    r"^\s*octave\s*\(\s*(<=|>=|==|<|>)\s*([^)]+?)\s*\)\s*$")
+
+
+def octave_constraints(release):
+    """The bounds a release puts on the interpreter, as (operator, version)."""
+    bounds = []
+    for dep in release.get("depends") or []:
+        if isinstance(dep, dict):
+            if dep.get("name") == "octave" and dep.get("operator"):
+                bounds.append((dep["operator"], dep.get("version")))
+            continue
+        found = OCTAVE_CONSTRAINT.match(str(dep))
+        if found:
+            bounds.append((found.group(1), found.group(2)))
+    return [(op, ver) for op, ver in bounds if ver]
+
+
+def satisfies(version, bounds):
+    """Whether an Octave release meets every bound a package declares.
+
+    A package that declares an upper bound means it, and handing it the
+    interpreter of its day regardless guarantees a failure that says nothing
+    about the package: "json" forbids Octave 7.1.0 and up, and its era would
+    otherwise be exactly that.
+    """
+    key = version_key(version)
+    for op, want in bounds:
+        other = version_key(want)
+        if op == ">=" and not key >= other:
+            return False
+        if op == ">" and not key > other:
+            return False
+        if op == "<=" and not key <= other:
+            return False
+        if op == "<" and not key < other:
+            return False
+        if op == "==" and key != other:
+            return False
+    return True
+
+
+def era_of(releases, when, bounds=()):
     """The newest Octave released on or before a day, or None before them all.
 
     A package published the same day as an Octave release is taken to belong to
@@ -53,10 +96,10 @@ def era_of(releases, when):
     """
     chosen = None
     for release in releases:
-        if release["date"] <= when:
-            chosen = release
-        else:
+        if release["date"] > when:
             break
+        if satisfies(release["version"], bounds):
+            chosen = release
     return chosen
 
 
@@ -70,6 +113,7 @@ def main():
     floor = version_key(MIN_OCTAVE)
     items = []
     held = predating = below = uninstallable = undated = 0
+    incompatible = 0
 
     for name in sorted(index):
         if REQUESTED and name not in REQUESTED:
@@ -89,9 +133,15 @@ def main():
             if plan.already_held(name, release):
                 held += 1
                 continue
-            era = era_of(releases, when)
+            bounds = octave_constraints(release)
+            era = era_of(releases, when, bounds)
             if era is None:
-                predating += 1
+                # Two different absences: nothing had been released yet, or
+                # nothing that had been met the bounds the package declares.
+                if era_of(releases, when) is None:
+                    predating += 1
+                else:
+                    incompatible += 1
                 continue
             if version_key(era["version"]) < floor:
                 below += 1
@@ -112,8 +162,9 @@ def main():
         items = items[:LIMIT]
 
     print(f"harvest {len(items)} releases; already held {held}, "
-          f"before the oldest image {predating}, below Octave {MIN_OCTAVE} "
-          f"{below}, not pkg-installable {uninstallable}, undated {undated}")
+          f"before the oldest image {predating}, no Octave meets the declared "
+          f"bounds {incompatible}, below Octave {MIN_OCTAVE} {below}, "
+          f"not pkg-installable {uninstallable}, undated {undated}")
 
     # One image per shard: pulling is the expensive part, and an era measured
     # by one job is an era whose core record is written by one job too.

@@ -210,8 +210,20 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
   ## Core's own names, taken before anything is installed or loaded.  Measured
   ## in this order nothing a package contributes can be counted as part of core,
   ## whatever the session already held.
-  coreNames = coreFunctionNames ();
-  writeCoreRecord (outdir, coreNames, asof);
+  ##
+  ## Guarded because it used to be the one stage that could not be reported: an
+  ## error here left the interpreter dead with no record written at all, and a
+  ## container that dies silently is indistinguishable from one the runner
+  ## killed.  Scanning core is where an old interpreter is most likely to
+  ## object, which is exactly where a diagnosis is most wanted.
+  coreNames = {};
+  coreFailure = '';
+  try
+    coreNames = coreFunctionNames ();
+    writeCoreRecord (outdir, coreNames, asof);
+  catch err
+    coreFailure = err.message;
+  end_try_catch
 
   ## Seed the record from the index, so that a failure at any later stage is
   ## still reported against a release that can be identified
@@ -246,6 +258,16 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
   record.dropped_core_paths = {};
   record.installed_as = '';
   outfile = fullfile (outdir, [pkgname '.json']);
+
+  ## Reported rather than assumed away: without core's names nothing can be
+  ## said about what this release takes over from it, and saying nothing would
+  ## read as taking over nothing.
+  if (! isempty (coreFailure))
+    record.status = 'scan-failed';
+    record.message = coreFailure;
+    status = writeRecord (outfile, record);
+    return;
+  endif
 
   if (! usePlan && ! isInstallable (entry))
     record.status = 'not-installable';

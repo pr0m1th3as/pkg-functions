@@ -311,12 +311,33 @@ function TF = opensWithFunction (file)
 
 endfunction
 
+## One list off a metaclass, or nothing when this interpreter does not keep it.
+##
+## The metaclass object grew its properties over many releases: Octave 4.2 has
+## no "SuperclassList" and says so by raising, where later versions answer with
+## an empty list.  A release measured under an old interpreter is described by
+## what that interpreter could tell us about it, which is the honest answer and
+## is better than no record at all.
+function members = metaList (metaClass, listName)
+
+  members = {};
+  try
+    members = metaClass.(listName);
+  catch
+  end_try_catch
+  if (! iscell (members))
+    members = num2cell (members);
+  endif
+
+endfunction
+
 ## Describe a classdef class, keeping only its public, non-hidden members.
 function record = classRecord (name, file, metaClass)
 
   methodNames = {};
-  for ii = 1:numel (metaClass.MethodList)
-    thisMethod = metaClass.MethodList{ii};
+  members = metaList (metaClass, 'MethodList');
+  for ii = 1:numel (members)
+    thisMethod = members{ii};
     if (thisMethod.Hidden || ! isPublic (thisMethod.Access))
       continue;
     endif
@@ -324,8 +345,9 @@ function record = classRecord (name, file, metaClass)
   endfor
 
   propertyNames = {};
-  for ii = 1:numel (metaClass.PropertyList)
-    thisProperty = metaClass.PropertyList{ii};
+  members = metaList (metaClass, 'PropertyList');
+  for ii = 1:numel (members)
+    thisProperty = members{ii};
     if (thisProperty.Hidden || ! isPublic (thisProperty.GetAccess))
       continue;
     endif
@@ -333,8 +355,9 @@ function record = classRecord (name, file, metaClass)
   endfor
 
   superNames = {};
-  for ii = 1:numel (metaClass.SuperclassList)
-    superNames{end+1} = metaClass.SuperclassList{ii}.Name;
+  supers = metaList (metaClass, 'SuperclassList');
+  for ii = 1:numel (supers)
+    superNames{end+1} = supers{ii}.Name;
   endfor
 
   record = struct ('name', name, 'file', file);

@@ -740,7 +740,10 @@ function plan = readPlan (planfile)
   unwind_protect
     line = fgetl (fid);
     while (ischar (line))
-      fields = strsplit (line, "\t");
+      ## Delimiters are not collapsed: an empty field is a field.  Forty
+      ## seven releases in the index carry no checksum, and collapsing the
+      ## two tabs around it slides every later field one place to the left.
+      fields = strsplit (line, "\t", 'collapsedelimiters', false);
       switch (fields{1})
         case 'release'
           plan.package = fields{2};
@@ -1142,5 +1145,26 @@ endfunction
 %!   assert_equal (! isempty (strfind (txt, '"status":"ok"')), true);
 %! unwind_protect_cleanup
 %!   rmpath (shadow);
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+## A plan whose release carries no checksum still parses: an empty field must
+## survive strsplit rather than closing up behind it.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   planfile = fullfile (tmp, 'plan.txt');
+%!   fid = fopen (planfile, 'w');
+%!   fprintf (fid, 'release\tpkgfixa\t1.0.0\t2024-03-01\t\thttps://e/x.tgz\n');
+%!   fprintf (fid, 'policy\t2024-03-01\t1\t1\n');
+%!   fprintf (fid, 'install\tpkgfixa\t1.0.0\t%s\n', ...
+%!            fullfile (tmp, 'pkgfixa-1.0.0.tar.gz'));
+%!   fclose (fid);
+%!   harvest_package ('pkgfixa', planfile, tmp, 'plan', true);
+%!   record = jsondecode (fileread (fullfile (tmp, 'pkgfixa.json')));
+%!   assert_equal (record.status, 'ok');
+%!   assert_equal (record.sha256, '');
+%!   assert_equal (record.url, 'https://e/x.tgz');
+%! unwind_protect_cleanup
 %!   __fixture_remove__ (state, tmp);
 %! end_unwind_protect

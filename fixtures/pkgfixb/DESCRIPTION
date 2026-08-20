@@ -1,0 +1,12 @@
+Name: pkgfixb
+Version: 1.0.0
+Date: 2026-08-20
+Title: Fixture package B
+Author: The pkg-functions authors
+Maintainer: The pkg-functions authors
+Description: A fixture package depending on pkgfixa, providing one function of
+ its own.  A measurement that credits it with pkgfixa's functions has failed to
+ isolate the two, which is the defect it exists to catch.
+Categories: Fixtures
+License: GPL-3.0+
+Depends: octave (>= 6.1.0), pkgfixa (>= 1.0.0)

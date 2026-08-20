@@ -250,3 +250,83 @@ endfunction
 %! package_paths (['ab'; 'cd'])
 %!error<package_paths: 'no_such_package_here' is not an installed package.> ...
 %! package_paths ('no_such_package_here')
+
+## The fixtures are installed into a prefix of their own, and the interpreter's
+## real one is put back whatever happens: a test suite that leaves two packages
+## behind in the user's installation has done more than test.
+%!function [state, tmp] = __fixture_install__ ()
+%!  root = fileparts (which ('package_paths'));
+%!  [state.prefix, state.archprefix] = pkg ('prefix');
+%!  state.list = pkg ('local_list');
+%!  tmp = tempname ();
+%!  mkdir (tmp);
+%!  tar (fullfile (tmp, 'pkgfixa-1.0.0.tar.gz'), {'pkgfixa'}, ...
+%!       fullfile (root, 'fixtures'));
+%!  tar (fullfile (tmp, 'pkgfixb-1.0.0.tar.gz'), {'pkgfixb'}, ...
+%!       fullfile (root, 'fixtures'));
+%!  pkg ('prefix', fullfile (tmp, 'prefix'), fullfile (tmp, 'arch'));
+%!  pkg ('local_list', fullfile (tmp, 'octave_packages'));
+%!  pkg ('install', fullfile (tmp, 'pkgfixa-1.0.0.tar.gz'));
+%!  pkg ('install', fullfile (tmp, 'pkgfixb-1.0.0.tar.gz'));
+%!endfunction
+
+%!function __fixture_remove__ (state, tmp)
+%!  for name = {'pkgfixb', 'pkgfixa'}
+%!    try
+%!      pkg ('unload', name{1});
+%!    catch
+%!    end_try_catch
+%!  endfor
+%!  pkg ('prefix', state.prefix, state.archprefix);
+%!  pkg ('local_list', state.list);
+%!  confirm_recursive_rmdir (false, 'local');
+%!  rmdir (tmp, 's');
+%!endfunction
+
+## A package is credited with its own directories and no others.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   dirlist = package_paths ('pkgfixb');
+%!   assert_equal (numel (dirlist), 1);
+%!   assert_equal (! isempty (strfind (dirlist{1}, 'pkgfixb-1.0.0')), true);
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+## The dependency is measured apart, not folded into the dependent.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   [~, depinfo] = package_paths ('pkgfixb');
+%!   assert_equal (numel (depinfo), 1);
+%!   assert_equal (depinfo{1}.name, 'pkgfixa');
+%!   assert_equal (depinfo{1}.version, '1.0.0');
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+## The regression this file exists for: "pkg load" pulls a dependency in, and a
+## bare before-and-after difference would credit its functions to the dependent.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   [dirlist, ~] = package_paths ('pkgfixb');
+%!   [~, contents] = scan_functions (dirlist);
+%!   names = cellfun (@(x) x.name, contents.functions, ...
+%!                    'UniformOutput', false);
+%!   assert_equal (sort (names), {'pkgfixb_gamma'});
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+## A package with no dependencies reports none.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   [dirlist, depinfo] = package_paths ('pkgfixa');
+%!   assert_equal (numel (dirlist), 1);
+%!   assert_equal (isempty (depinfo), true);
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect

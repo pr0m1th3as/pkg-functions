@@ -1,0 +1,12 @@
+Name: pkgfixa
+Version: 1.0.0
+Date: 2026-08-20
+Title: Fixture package A
+Author: The pkg-functions authors
+Maintainer: The pkg-functions authors
+Description: A fixture package with no dependencies, providing two functions
+ whose names appear nowhere else.  It exists to be installed by the test suite
+ and measured, and it is never published.
+Categories: Fixtures
+License: GPL-3.0+
+Depends: octave (>= 6.1.0)

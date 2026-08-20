@@ -588,10 +588,17 @@ function installSystemDependencies (index, closure, selector)
   endfor
 
   system ("sudo apt-get update");
-  cmd = strcat ("sudo DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC", ...
-                " apt-get install --yes ", strjoin (aptNames, " "));
+  ## Concatenated with brackets and not with strcat, which strips the trailing
+  ## whitespace off every character argument it is given -- including a lone
+  ## " " passed as its own argument.  Built with strcat this command reached
+  ## apt as "--yesgmsh", and apt rejected the option rather than the package,
+  ## so every system dependency in the data set failed to install and the log
+  ## carried a message that named no package at all.
+  wanted = strjoin (aptNames, " ");
+  cmd = ["sudo DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get" ...
+         " install --yes " wanted];
   if (system (cmd) != 0)
-    error ("harvest_package: apt-get failed for: %s.", strjoin (aptNames, " "));
+    error ("harvest_package: apt-get failed for: %s.", wanted);
   endif
 
 endfunction

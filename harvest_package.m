@@ -17,6 +17,7 @@
 
 ## -*- texinfo -*-
 ## @deftypefn  {pkg-functions} {@var{outfile} =} harvest_package (@var{pkgname}, @var{indexfile}, @var{outdir})
+## @deftypefnx {pkg-functions} {@var{outfile} =} harvest_package (@dots{}, @var{name}, @var{value})
 ## @deftypefnx {pkg-functions} {[@var{outfile}, @var{status}] =} harvest_package (@dots{})
 ##
 ## Install a package from the Octave Packages index and record what it provides.
@@ -57,13 +58,44 @@
 ## @code{sudo} without a password.  A package already installed at the version
 ## the index names is left alone.
 ##
+## Which release of each package is installed is decided by a resolution
+## policy, given as @var{name}, @var{value} pairs and recorded in the
+## @qcode{resolution} field of the record.
+##
+## @table @asis
+## @item @qcode{"version"}
+## Harvest the named release of @var{pkgname} rather than its newest.
+##
+## @item @qcode{"asof"}
+## A date, @qcode{"yyyy-mm-dd"}.  Every package in the closure resolves to its
+## newest release dated on or before that day, which is what makes the result
+## a view of the ecosystem as it stood then.  A release carrying no date is a
+## development snapshot belonging to no day, and is never selected.
+## @end table
+##
+## Given alone, @qcode{"version"} implies an @qcode{"asof"} of the day that
+## release shipped.  Without it the closure would resolve to today's releases,
+## which never coexisted with the release being harvested, and the record would
+## describe a combination that never existed.  Giving both is therefore a
+## deliberate act: the pinned release as it would have been seen on another
+## day.  Given neither, everything resolves to its newest release, and the
+## record describes the ecosystem as it stands now.
+##
+## The record of a harvest under a policy carries what it was resolved
+## against.  @qcode{resolution.backfill} is true when the release harvested is
+## not the newest the index offers, which is the one thing a reader cannot
+## infer from the version alone.  @qcode{dependencies} holds the closure as it
+## was actually installed, so what a policy asked for and what it got are both
+## on record.
+##
 ## @seealso{package_paths, scan_functions}
 ## @end deftypefn
 
-function [outfile, status] = harvest_package (pkgname, indexfile, outdir)
+function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
+                                             varargin)
 
   ## Input validation
-  if (nargin != 3)
+  if (nargin < 3)
     error ("harvest_package: invalid number of input arguments.");
   endif
   if (! (ischar (pkgname) && isrow (pkgname)))
@@ -81,6 +113,40 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir)
   if (exist (outdir, 'dir') != 7)
     error ("harvest_package: '%s' is not an existing directory.", outdir);
   endif
+  if (mod (numel (varargin), 2) != 0)
+    error (strcat ("harvest_package: optional arguments must be given as", ...
+                   " NAME, VALUE pairs."));
+  endif
+
+  requested = '';
+  asof = '';
+  while (numel (varargin) > 1)
+    argname = varargin{1};
+    argvalue = varargin{2};
+    varargin(1:2) = [];
+    if (! (ischar (argname) && isrow (argname)))
+      error (strcat ("harvest_package: optional argument name must be a", ...
+                     " character vector."));
+    endif
+    switch (lower (argname))
+      case 'version'
+        if (! (ischar (argvalue) && isrow (argvalue)))
+          error ("harvest_package: VERSION must be a character vector.");
+        endif
+        requested = argvalue;
+      case 'asof'
+        if (! (ischar (argvalue) && isrow (argvalue)))
+          error ("harvest_package: ASOF must be a character vector.");
+        endif
+        if (isempty (regexp (argvalue, '^\d{4}-\d{2}-\d{2}$', 'once')))
+          error (strcat ("harvest_package: ASOF must be a date of the form", ...
+                         " 'yyyy-mm-dd'."));
+        endif
+        asof = argvalue;
+      otherwise
+        error ("harvest_package: unknown optional argument '%s'.", argname);
+    endswitch
+  endwhile
 
   index = jsondecode (fileread (indexfile), 'makeValidName', false);
   if (! isfield (index, pkgname))
@@ -88,19 +154,48 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir)
            pkgname);
   endif
 
+  ## A release pinned without a day to read it on is resolved as of the day it
+  ## shipped, so that its dependencies are what actually coexisted with it.
+  ## Resolving them to today's releases would measure a combination that never
+  ## existed and file it under a version that did.
+  asofImplied = false;
+  if (! isempty (requested) && isempty (asof))
+    pinned = findVersion (index, pkgname, requested);
+    if (! isempty (entryDate (pinned)))
+      asof = pinned.date;
+      asofImplied = true;
+    endif
+  endif
+  selector = struct ('asof', asof, 'pinName', pkgname, ...
+                     'pinVersion', requested);
+
   ## Core's own names, taken before anything is installed or loaded.  Measured
   ## in this order nothing a package contributes can be counted as part of core,
   ## whatever the session already held.
   coreNames = coreFunctionNames ();
-  writeCoreRecord (outdir, coreNames);
+  writeCoreRecord (outdir, coreNames, asof);
 
   ## Seed the record from the index, so that a failure at any later stage is
   ## still reported against a release that can be identified
-  entry = indexEntry (index, pkgname);
+  entry = selectEntry (index, pkgname, selector);
   record = struct ('package', pkgname, 'version', entry.id, ...
                    'date', entry.date, 'sha256', entry.sha256, ...
                    'url', entry.url, 'octave', version (), ...
                    'status', 'ok', 'message', '');
+  if (isempty (asof))
+    policy = 'newest';
+  else
+    policy = 'asof';
+  endif
+  ## What the release was chosen by, kept beside what was chosen.  "backfill"
+  ## is the part a reader cannot recover from the version alone: whether this
+  ## record describes the package as it stands or as it once stood.
+  record.resolution = struct ('policy', policy, 'asof', asof, ...
+                              'asof_implied', asofImplied, ...
+                              'requested', requested, ...
+                              'backfill', ! strcmp (entry.id, ...
+                                                    newestEntry (index, ...
+                                                                 pkgname).id));
   record.dependencies = {};
   outfile = fullfile (outdir, [pkgname '.json']);
 
@@ -113,10 +208,10 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir)
 
   ## Install the dependency closure, dependencies before dependents
   try
-    closure = resolveClosure (index, pkgname, {}, {});
-    installSystemDependencies (index, closure);
+    closure = resolveClosure (index, pkgname, {}, {}, selector);
+    installSystemDependencies (index, closure, selector);
     for ii = 1:numel (closure)
-      installPackage (index, closure{ii});
+      installPackage (index, closure{ii}, selector);
     endfor
   catch err
     record.status = 'install-failed';
@@ -201,10 +296,21 @@ endfunction
 ## The date is the day the measurement was made, not a release date, which is
 ## not something the interpreter can tell us.  It reads as "from when we began
 ## measuring against this core", which is what it is.
-function writeCoreRecord (outdir, coreNames)
+##
+## Under a policy it is the day being reconstructed instead, because that is
+## the day this core is being offered as the core of.  The distinction is not
+## cosmetic: the merge replays providers in date order, so a core measured for
+## a past day has to carry that day or it arrives after every core already
+## held and is taken for a newer one.
+function writeCoreRecord (outdir, coreNames, asof)
 
+  if (isempty (asof))
+    recorded = datestr (now (), 'yyyy-mm-dd');
+  else
+    recorded = asof;
+  endif
   record = struct ('package', '__core__', 'version', version (), ...
-                   'date', datestr (now (), 'yyyy-mm-dd'), ...
+                   'date', recorded, ...
                    'octave', version (), 'status', 'ok', 'message', '');
   record.names = coreNames(:)';
 
@@ -263,17 +369,97 @@ function reportOverrides (pkgname, record)
 
 endfunction
 
-## The newest release of a package.  The index stores the version list as a
-## structure array, or as a cell array when its entries do not share the same
-## fields, and the newest is first either way.
-function entry = indexEntry (index, pkgname)
+## Every release the index lists for a package, newest first.  The list is
+## stored as a structure array, or as a cell array when its entries do not
+## share the same fields; a cell array of entries is the one shape the rest of
+## this file has to deal with.
+function versions = indexVersions (index, pkgname)
 
-  versions = index.(pkgname).versions;
-  if (iscell (versions))
-    entry = versions{1};
+  entries = index.(pkgname).versions;
+  if (iscell (entries))
+    versions = reshape (entries, 1, []);
   else
-    entry = versions(1);
+    versions = arrayfun (@(x) x, reshape (entries, 1, []), ...
+                         'UniformOutput', false);
   endif
+
+endfunction
+
+## The newest release of a package, whatever policy is in force.  Only the
+## record's "backfill" flag needs this: everything else asks for the release
+## the policy selects.
+function entry = newestEntry (index, pkgname)
+
+  versions = indexVersions (index, pkgname);
+  entry = versions{1};
+
+endfunction
+
+## A named release of a package, or an error naming the releases there are.
+function entry = findVersion (index, pkgname, wanted)
+
+  versions = indexVersions (index, pkgname);
+  for ii = 1:numel (versions)
+    if (strcmp (versions{ii}.id, wanted))
+      entry = versions{ii};
+      return;
+    endif
+  endfor
+  ids = cellfun (@(x) x.id, versions, 'UniformOutput', false);
+  error ("harvest_package: '%s' has no release '%s'; it has %s.", ...
+         pkgname, wanted, strjoin (ids, ", "));
+
+endfunction
+
+## The date a release carries, or empty when it carries none.  The development
+## snapshots the index lists have no date at all, and so belong to no day.
+function thisdate = entryDate (entry)
+
+  thisdate = '';
+  if (isfield (entry, 'date') && ischar (entry.date) ...
+      && ! isempty (regexp (entry.date, '^\d{4}-\d{2}-\d{2}$', 'once')))
+    thisdate = entry.date;
+  endif
+
+endfunction
+
+## The release the resolution policy selects for a package: the pinned one for
+## the package that was pinned, otherwise the newest dated on or before the day
+## being reconstructed, otherwise simply the newest.
+##
+## A dated release is compared as a number rather than as text, so that the
+## comparison does not depend on how two char vectors happen to order.
+function entry = selectEntry (index, pkgname, selector)
+
+  if (strcmp (pkgname, selector.pinName) && ! isempty (selector.pinVersion))
+    entry = findVersion (index, pkgname, selector.pinVersion);
+    return;
+  endif
+
+  versions = indexVersions (index, pkgname);
+  if (isempty (selector.asof))
+    entry = versions{1};
+    return;
+  endif
+
+  ## Newest first, so the first release old enough is the one wanted.
+  limit = dateNumber (selector.asof);
+  for ii = 1:numel (versions)
+    thisdate = entryDate (versions{ii});
+    if (! isempty (thisdate) && dateNumber (thisdate) <= limit)
+      entry = versions{ii};
+      return;
+    endif
+  endfor
+  error ("harvest_package: '%s' had no release on or before %s.", ...
+         pkgname, selector.asof);
+
+endfunction
+
+## A "yyyy-mm-dd" date as the number yyyymmdd, which orders the same way.
+function num = dateNumber (thisdate)
+
+  num = str2double (strrep (thisdate, '-', ''));
 
 endfunction
 
@@ -310,7 +496,7 @@ endfunction
 
 ## Post-order walk of the index dependency graph, dependencies before
 ## dependents.  Core Octave and the "pkg" marker are not packages to install.
-function order = resolveClosure (index, pkgname, order, stack)
+function order = resolveClosure (index, pkgname, order, stack, selector)
 
   if (any (strcmp (order, pkgname)))
     return;
@@ -324,23 +510,25 @@ function order = resolveClosure (index, pkgname, order, stack)
   endif
   stack{end+1} = pkgname;
 
-  names = dependencyNames (indexEntry (index, pkgname));
+  ## The dependencies of the release the policy selects, which are not the
+  ## dependencies its newest release declares.
+  names = dependencyNames (selectEntry (index, pkgname, selector));
   for ii = 1:numel (names)
     if (any (strcmp (names{ii}, {'octave', 'pkg'})))
       continue;
     endif
-    order = resolveClosure (index, names{ii}, order, stack);
+    order = resolveClosure (index, names{ii}, order, stack, selector);
   endfor
   order{end+1} = pkgname;
 
 endfunction
 
 ## Install the Ubuntu packages the closure declares, in one apt-get call.
-function installSystemDependencies (index, closure)
+function installSystemDependencies (index, closure, selector)
 
   aptNames = {};
   for ii = 1:numel (closure)
-    entry = indexEntry (index, closure{ii});
+    entry = selectEntry (index, closure{ii}, selector);
     if (! isfield (entry, 'ubuntu2604') || isempty (entry.ubuntu2604))
       continue;
     endif
@@ -371,9 +559,9 @@ endfunction
 
 ## Install one package from the index, unless the version it names is already
 ## installed.
-function installPackage (index, pkgname)
+function installPackage (index, pkgname, selector)
 
-  entry = indexEntry (index, pkgname);
+  entry = selectEntry (index, pkgname, selector);
   installed = pkg ('list', pkgname);
   if (! isempty (installed) && strcmp (installed{1}.version, entry.id))
     return;
@@ -408,3 +596,105 @@ endfunction
 %! harvest_package ('a', 5, 'd')
 %!error<harvest_package: 'no_such_index_file' is not an existing file.> ...
 %! harvest_package ('a', 'no_such_index_file', 'd')
+%!error<harvest_package: optional arguments must be given as NAME, VALUE pairs.> ...
+%! harvest_package ('a', which ('harvest_package'), tempdir (), 'asof')
+%!error<harvest_package: optional argument name must be a character vector.> ...
+%! harvest_package ('a', which ('harvest_package'), tempdir (), 5, '1.0')
+%!error<harvest_package: VERSION must be a character vector.> ...
+%! harvest_package ('a', which ('harvest_package'), tempdir (), 'version', 5)
+%!error<harvest_package: ASOF must be a character vector.> ...
+%! harvest_package ('a', which ('harvest_package'), tempdir (), 'asof', 5)
+%!error<harvest_package: ASOF must be a date of the form 'yyyy-mm-dd'.> ...
+%! harvest_package ('a', which ('harvest_package'), tempdir (), 'asof', '1-1-26')
+%!error<harvest_package: unknown optional argument 'whenever'.> ...
+%! harvest_package ('a', which ('harvest_package'), tempdir (), 'whenever', 'x')
+
+%!function __write__ (fname, txt)
+%!  fid = fopen (fname, 'w');
+%!  fputs (fid, txt);
+%!  fclose (fid);
+%!endfunction
+
+%!function __remove__ (tmpDir)
+%!  confirm_recursive_rmdir (false, 'local');
+%!  rmdir (tmpDir, 's');
+%!endfunction
+
+%!function __index__ (fname)
+%!  __write__ (fname, ['{"demo":{"versions":[' ...
+%!    '{"id":"2.0","date":"2026-06-01","sha256":"b","url":"u2",' ...
+%!    '"depends":["octave (>= 6.1.0)"]},' ...
+%!    '{"id":"1.0","date":"2024-03-01","sha256":"a","url":"u1",' ...
+%!    '"depends":["octave (>= 6.1.0)"]}]}}']);
+%!endfunction
+
+## Declaring no "pkg" dependency, the fixture is recorded without being
+## installed, which leaves the release the policy chose observable on its own.
+%!test
+%! tmpDir = tempname ();
+%! mkdir (tmpDir);
+%! unwind_protect
+%!   idxFile = fullfile (tmpDir, 'index.json');
+%!   __index__ (idxFile);
+%!   harvest_package ('demo', idxFile, tmpDir);
+%!   record = jsondecode (fileread (fullfile (tmpDir, 'demo.json')));
+%!   assert_equal (record.version, '2.0');
+%!   assert_equal (record.resolution.policy, 'newest');
+%!   assert_equal (record.resolution.backfill, false);
+%! unwind_protect_cleanup
+%!   confirm_recursive_rmdir (false, 'local');
+%!   rmdir (tmpDir, 's');
+%! end_unwind_protect
+
+%!test
+%! tmpDir = tempname ();
+%! mkdir (tmpDir);
+%! unwind_protect
+%!   idxFile = fullfile (tmpDir, 'index.json');
+%!   __index__ (idxFile);
+%!   harvest_package ('demo', idxFile, tmpDir, 'asof', '2025-01-01');
+%!   record = jsondecode (fileread (fullfile (tmpDir, 'demo.json')));
+%!   assert_equal (record.version, '1.0');
+%!   assert_equal (record.resolution.policy, 'asof');
+%!   assert_equal (record.resolution.asof, '2025-01-01');
+%!   assert_equal (record.resolution.backfill, true);
+%! unwind_protect_cleanup
+%!   confirm_recursive_rmdir (false, 'local');
+%!   rmdir (tmpDir, 's');
+%! end_unwind_protect
+
+## A pinned release is read as of the day it shipped, so the core it is
+## measured against is dated that day and not the day of the harvest.
+%!test
+%! tmpDir = tempname ();
+%! mkdir (tmpDir);
+%! unwind_protect
+%!   idxFile = fullfile (tmpDir, 'index.json');
+%!   __index__ (idxFile);
+%!   harvest_package ('demo', idxFile, tmpDir, 'version', '1.0');
+%!   record = jsondecode (fileread (fullfile (tmpDir, 'demo.json')));
+%!   assert_equal (record.version, '1.0');
+%!   assert_equal (record.resolution.asof, '2024-03-01');
+%!   assert_equal (record.resolution.asof_implied, true);
+%!   core = jsondecode (fileread (fullfile (tmpDir, '__core__.json')));
+%!   assert_equal (core.date, '2024-03-01');
+%! unwind_protect_cleanup
+%!   confirm_recursive_rmdir (false, 'local');
+%!   rmdir (tmpDir, 's');
+%! end_unwind_protect
+
+%!error<harvest_package: 'demo' has no release '3.0'; it has 2.0, 1.0.> ...
+%! tmpDir = tempname ();
+%! mkdir (tmpDir);
+%! cleanupObj = onCleanup (@() __remove__ (tmpDir));
+%! idxFile = fullfile (tmpDir, 'index.json');
+%! __index__ (idxFile);
+%! harvest_package ('demo', idxFile, tmpDir, 'version', '3.0');
+
+%!error<harvest_package: 'demo' had no release on or before 2020-01-01.> ...
+%! tmpDir = tempname ();
+%! mkdir (tmpDir);
+%! cleanupObj = onCleanup (@() __remove__ (tmpDir));
+%! idxFile = fullfile (tmpDir, 'index.json');
+%! __index__ (idxFile);
+%! harvest_package ('demo', idxFile, tmpDir, 'asof', '2020-01-01');

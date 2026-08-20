@@ -1,0 +1,1 @@
+{"date":"2022-11-11","dependencies":[],"message":"harvest_package: apt-get failed for: gmsh.","octave":"11.3.0","package":"sole","sha256":"e4b52464e46e0f15a9589fc58047e02452fb7e67690d7df86abde4510efeb2c7","status":"install-failed","url":"https://sourceforge.net/projects/sole/files/latest/download","version":"0.1.1"}

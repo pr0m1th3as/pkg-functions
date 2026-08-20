@@ -1,0 +1,1 @@
+{"date":[],"dependencies":[],"message":"info(1): out of bound 0 (dimensions are 0x0) (note: variable 'info' shadows function)","octave":"11.3.0","package":"pkg","sha256":[],"status":"scan-failed","url":"https://github.com/gnu-octave/pkg/archive/main.zip","version":"dev"}

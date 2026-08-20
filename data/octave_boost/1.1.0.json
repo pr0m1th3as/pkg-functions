@@ -1,0 +1,1 @@
+{"date":"2026-05-27","dependencies":[],"message":"harvest_package: apt-get failed for: libboost-all-dev.","octave":"11.3.0","package":"octave_boost","sha256":"c509048ce4f2cd175d803cea0c11785fac51dd9e914481909c9a2f61d42f814a","status":"install-failed","url":"https://github.com/CNOCTAVE/octave_boost/releases/download/1.1.0/octave_boost.tar.gz","version":"1.1.0"}

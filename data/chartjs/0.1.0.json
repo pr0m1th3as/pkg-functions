@@ -1,0 +1,1 @@
+{"date":"2025-02-17","dependencies":[],"message":"pkg: error running 'make' for the chartjs package","octave":"11.3.0","package":"chartjs","sha256":"36959aa6c75d953b490254468c4df5bbeb3d8482622c0a3cced8949339bb06b5","status":"install-failed","url":"https://github.com/pr0m1th3as/octave-chartjs/releases/download/release-0.1.0/octave-chartjs-0.1.0.tar.gz","version":"0.1.0"}

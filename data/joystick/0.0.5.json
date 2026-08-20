@@ -1,0 +1,1 @@
+{"date":"2026-06-11","dependencies":[],"message":"harvest_package: apt-get failed for: libsdl2-dev.","octave":"11.3.0","package":"joystick","sha256":"5fc90432e5906c098153477203951efe412d87d77357372e7449a968faa40226","status":"install-failed","url":"https://github.com/gnu-octave/octave-joystick/releases/download/v0.0.5/joystick-0.0.5.tar.gz","version":"0.0.5"}

@@ -1,0 +1,1 @@
+{"date":"2024-04-07","dependencies":[],"message":"harvest_package: apt-get failed for: libjansson-dev.","octave":"11.3.0","package":"rtree","sha256":"40e1e335bbb50fa2aa2d492ea5b30e6d777dbbbf26c9389c68eec07ec9f4b368","status":"install-failed","url":"https://gitlab.com/jjg/librtree-octave/-/package_files/121124775/download","version":"0.8.2"}

@@ -1,0 +1,1 @@
+{"date":"2026-05-25","dependencies":[],"message":"harvest_package: apt-get failed for: libsqlite3-dev.","octave":"11.3.0","package":"sqlite","sha256":"858854545bc57ddb2eff5267101959b50c7b5be134ccc694bdef148d6d5ce261","status":"install-failed","url":"https://github.com/gnu-octave/octave-sqlite/releases/download/v0.1.4-release/octave-sqlite-0.1.4.tar.gz","version":"0.1.4"}

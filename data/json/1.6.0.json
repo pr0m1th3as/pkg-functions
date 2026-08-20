@@ -1,0 +1,1 @@
+{"date":"2025-03-23","dependencies":[],"message":"the following dependencies were unsatisfied:\n   json needs octave < 7.1.0","octave":"11.3.0","package":"json","sha256":"f27e407998f980f7150cbb007da000034bb7c2e381205bae5afe3d2943785482","status":"install-failed","url":"https://github.com/gnu-octave/pkg-json/archive/v1.6.0.tar.gz","version":"1.6.0"}

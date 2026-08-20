@@ -71,6 +71,16 @@
 ## @item @qcode{"version"}
 ## Harvest the named release of @var{pkgname} rather than its newest.
 ##
+## @item @qcode{"plan"}
+## A logical.  When true, @var{indexfile} is not the package index but a plan
+## naming one release, its dependencies as files already downloaded, and the
+## system packages to install.  Everything has then been resolved by the
+## caller, so nothing is read from the index and nothing is fetched.  This is
+## how releases are measured under interpreters older than Octave 7.1, which
+## have no @code{jsondecode} to read the index with.  @qcode{"version"} and
+## @qcode{"asof"} cannot be combined with it: a plan has already settled what
+## they would decide.
+##
 ## @item @qcode{"asof"}
 ## A date, @qcode{"yyyy-mm-dd"}.  Every package in the closure resolves to its
 ## newest release dated on or before that day, which is what makes the result
@@ -125,6 +135,7 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
 
   requested = '';
   asof = '';
+  usePlan = false;
   while (numel (varargin) > 1)
     argname = varargin{1};
     argvalue = varargin{2};
@@ -139,6 +150,11 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
           error ("harvest_package: VERSION must be a character vector.");
         endif
         requested = argvalue;
+      case 'plan'
+        if (! (islogical (argvalue) && isscalar (argvalue)))
+          error ("harvest_package: PLAN must be a logical scalar.");
+        endif
+        usePlan = argvalue;
       case 'asof'
         if (! (ischar (argvalue) && isrow (argvalue)))
           error ("harvest_package: ASOF must be a character vector.");
@@ -153,10 +169,22 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
     endswitch
   endwhile
 
-  index = jsondecode (fileread (indexfile), 'makeValidName', false);
-  if (! isfield (index, pkgname))
-    error ("harvest_package: '%s' is not listed in the package index.", ...
-           pkgname);
+  if (usePlan)
+    if (! (isempty (requested) && isempty (asof)))
+      error (strcat ("harvest_package: VERSION and ASOF say which release", ...
+                     " to resolve, which a plan has already settled."));
+    endif
+    plan = readPlan (indexfile);
+    if (! strcmp (plan.package, pkgname))
+      error (strcat ("harvest_package: the plan describes '%s', not '%s'."), ...
+             plan.package, pkgname);
+    endif
+  else
+    index = jsondecode (fileread (indexfile), 'makeValidName', false);
+    if (! isfield (index, pkgname))
+      error ("harvest_package: '%s' is not listed in the package index.", ...
+             pkgname);
+    endif
   endif
 
   ## A release pinned without a day to read it on is resolved as of the day it
@@ -164,7 +192,12 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
   ## Resolving them to today's releases would measure a combination that never
   ## existed and file it under a version that did.
   asofImplied = false;
-  if (! isempty (requested) && isempty (asof))
+  if (usePlan)
+    ## The host resolved this one; the plan says which day it was resolved as
+    ## of, and the record repeats it rather than deriving it again.
+    asof = plan.asof;
+    asofImplied = plan.asof_implied;
+  elseif (! isempty (requested) && isempty (asof))
     pinned = findVersion (index, pkgname, requested);
     if (! isempty (entryDate (pinned)))
       asof = pinned.date;
@@ -182,7 +215,12 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
 
   ## Seed the record from the index, so that a failure at any later stage is
   ## still reported against a release that can be identified
-  entry = selectEntry (index, pkgname, selector);
+  if (usePlan)
+    entry = struct ('id', plan.version, 'date', plan.date, ...
+                    'sha256', plan.sha256, 'url', plan.url);
+  else
+    entry = selectEntry (index, pkgname, selector);
+  endif
   record = struct ('package', pkgname, 'version', entry.id, ...
                    'date', entry.date, 'sha256', entry.sha256, ...
                    'url', entry.url, 'octave', version (), ...
@@ -195,18 +233,21 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
   ## What the release was chosen by, kept beside what was chosen.  "backfill"
   ## is the part a reader cannot recover from the version alone: whether this
   ## record describes the package as it stands or as it once stood.
+  if (usePlan)
+    backfill = plan.backfill;
+  else
+    backfill = ! strcmp (entry.id, newestEntry (index, pkgname).id);
+  endif
   record.resolution = struct ('policy', policy, 'asof', asof, ...
                               'asof_implied', asofImplied, ...
                               'requested', requested, ...
-                              'backfill', ! strcmp (entry.id, ...
-                                                    newestEntry (index, ...
-                                                                 pkgname).id));
+                              'backfill', backfill);
   record.dependencies = {};
   record.dropped_core_paths = {};
   record.installed_as = '';
   outfile = fullfile (outdir, [pkgname '.json']);
 
-  if (! isInstallable (entry))
+  if (! usePlan && ! isInstallable (entry))
     record.status = 'not-installable';
     record.message = 'the index declares no "pkg" dependency';
     status = writeRecord (outfile, record);
@@ -216,14 +257,27 @@ function [outfile, status] = harvest_package (pkgname, indexfile, outdir, ...
   ## Install the dependency closure, dependencies before dependents
   targetName = pkgname;
   try
-    closure = resolveClosure (index, pkgname, {}, {}, selector);
-    installSystemDependencies (index, closure, selector);
-    for ii = 1:numel (closure)
-      thisName = installPackage (index, closure{ii}, selector);
-      if (strcmp (closure{ii}, pkgname))
-        targetName = thisName;
-      endif
-    endfor
+    if (usePlan)
+      ## The host resolved the closure, downloaded it and named the system
+      ## packages; nothing here has to consult the index or the network.
+      installAptPackages (plan.apt);
+      for ii = 1:numel (plan.install)
+        step = plan.install{ii};
+        thisName = installTarball (step.name, step.version, step.file);
+        if (strcmp (step.name, pkgname))
+          targetName = thisName;
+        endif
+      endfor
+    else
+      closure = resolveClosure (index, pkgname, {}, {}, selector);
+      installSystemDependencies (index, closure, selector);
+      for ii = 1:numel (closure)
+        thisName = installPackage (index, closure{ii}, selector);
+        if (strcmp (closure{ii}, pkgname))
+          targetName = thisName;
+        endif
+      endfor
+    endif
   catch err
     record.status = 'install-failed';
     record.message = err.message;
@@ -372,7 +426,7 @@ function writeCoreRecord (outdir, coreNames, asof)
   if (fid < 0)
     error ("harvest_package: cannot write '%s'.", outfile);
   endif
-  fputs (fid, jsonencode (record));
+  fputs (fid, encodeJSON (record));
   fclose (fid);
 
 endfunction
@@ -587,6 +641,13 @@ function installSystemDependencies (index, closure, selector)
     endif
     aptNames = [aptNames, reshape(cellstr (entry.ubuntu2604), 1, [])];
   endfor
+  installAptPackages (aptNames);
+
+endfunction
+
+## Install a list of Ubuntu packages, or do nothing when the list is empty.
+function installAptPackages (aptNames)
+
   aptNames = unique (aptNames);
   if (isempty (aptNames))
     return;
@@ -633,6 +694,85 @@ function installedName = installPackage (index, pkgname, selector)
 
 endfunction
 
+## Install one already-downloaded release, and report the name it registered
+## itself under.  The counterpart of installPackage for a planned run: the file
+## is on disk already, so nothing is resolved and nothing is fetched.
+function installedName = installTarball (pkgname, wanted, file)
+
+  installed = pkg ('list', pkgname);
+  if (! isempty (installed) && strcmp (installed{1}.version, wanted))
+    installedName = pkgname;
+    return;
+  endif
+  before = installedNames ();
+  pkg ('install', file);
+  installedName = registeredName (before, pkgname);
+
+endfunction
+
+## Read a plan: what the host resolved, so that nothing here has to.
+##
+## The format is one directive per line, fields separated by tabs, which any
+## interpreter can read with fgetl and strsplit.  JSON would be the obvious
+## choice and is the wrong one: jsondecode arrived in Octave 7.1, and a planned
+## run exists precisely to be measured under the interpreters that came before
+## it.  Nothing is evaluated, so a package name out of the index cannot become
+## code.
+##
+##   release  NAME  VERSION  DATE  SHA256  URL
+##   policy   ASOF  ASOF_IMPLIED  BACKFILL
+##   apt      NAME [NAME ...]
+##   install  NAME  VERSION  FILE
+##
+## The install lines are followed in the order given, dependencies first.
+function plan = readPlan (planfile)
+
+  plan = struct ('package', '', 'version', '', 'date', '', 'sha256', '', ...
+                 'url', '', 'asof', '', 'asof_implied', false, ...
+                 'backfill', false);
+  plan.apt = {};
+  plan.install = {};
+
+  fid = fopen (planfile, 'r');
+  if (fid < 0)
+    error ("harvest_package: cannot read the plan '%s'.", planfile);
+  endif
+  unwind_protect
+    line = fgetl (fid);
+    while (ischar (line))
+      fields = strsplit (line, "\t");
+      switch (fields{1})
+        case 'release'
+          plan.package = fields{2};
+          plan.version = fields{3};
+          plan.date = fields{4};
+          plan.sha256 = fields{5};
+          plan.url = fields{6};
+        case 'policy'
+          plan.asof = fields{2};
+          plan.asof_implied = strcmp (fields{3}, '1');
+          plan.backfill = strcmp (fields{4}, '1');
+        case 'apt'
+          plan.apt = fields(2:end);
+        case 'install'
+          plan.install{end+1} = struct ('name', fields{2}, ...
+                                        'version', fields{3}, ...
+                                        'file', fields{4});
+        otherwise
+          error ("harvest_package: unknown plan directive '%s'.", fields{1});
+      endswitch
+      line = fgetl (fid);
+    endwhile
+  unwind_protect_cleanup
+    fclose (fid);
+  end_unwind_protect
+
+  if (isempty (plan.package))
+    error ("harvest_package: the plan names no release to harvest.");
+  endif
+
+endfunction
+
 ## The packages "pkg" knows about, by name.
 function names = installedNames ()
 
@@ -668,7 +808,7 @@ function status = writeRecord (outfile, record)
   if (fid < 0)
     error ("harvest_package: cannot write '%s'.", outfile);
   endif
-  fputs (fid, jsonencode (record));
+  fputs (fid, encodeJSON (record));
   fclose (fid);
   status = ! strcmp (record.status, 'ok');
   if (status)
@@ -922,5 +1062,85 @@ endfunction
 %!   record = jsondecode (fileread (fullfile (tmp, 'pkgfixa.json')));
 %!   assert_equal (record.installed_as, '');
 %! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+%!error<harvest_package: PLAN must be a logical scalar.> ...
+%! harvest_package ('a', which ('harvest_package'), tempdir (), 'plan', 'yes')
+%!error<harvest_package: VERSION and ASOF say which release to resolve, which a plan has already settled.> ...
+%! harvest_package ('a', which ('harvest_package'), tempdir (), 'plan', ...
+%!                  true, 'asof', '2024-01-01')
+
+%!function __plan__ (fname, tmp, target)
+%!  fid = fopen (fname, 'w');
+%!  fprintf (fid, 'release\t%s\t1.0.0\t2024-03-01\tabc\thttps://e/x.tgz\n', ...
+%!           target);
+%!  fprintf (fid, 'policy\t2024-03-01\t1\t1\n');
+%!  fprintf (fid, 'install\tpkgfixa\t1.0.0\t%s\n', ...
+%!           fullfile (tmp, 'pkgfixa-1.0.0.tar.gz'));
+%!  fprintf (fid, 'install\tpkgfixb\t1.0.0\t%s\n', ...
+%!           fullfile (tmp, 'pkgfixb-1.0.0.tar.gz'));
+%!  fclose (fid);
+%!endfunction
+
+## A planned run installs what it is told and records what the plan settled.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   planfile = fullfile (tmp, 'plan.txt');
+%!   __plan__ (planfile, tmp, 'pkgfixb');
+%!   harvest_package ('pkgfixb', planfile, tmp, 'plan', true);
+%!   record = jsondecode (fileread (fullfile (tmp, 'pkgfixb.json')));
+%!   assert_equal (record.status, 'ok');
+%!   assert_equal (record.resolution.asof, '2024-03-01');
+%!   assert_equal (record.resolution.backfill, true);
+%!   names = arrayfun (@(x) x.name, record.contents.functions, ...
+%!                     'UniformOutput', false);
+%!   assert_equal (sort (names(:)'), {'pkgfixb_gamma'});
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+## A plan naming one release cannot be used to harvest another.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! unwind_protect
+%!   planfile = fullfile (tmp, 'plan.txt');
+%!   __plan__ (planfile, tmp, 'pkgfixb');
+%!   err = '';
+%!   try
+%!     harvest_package ('pkgfixa', planfile, tmp, 'plan', true);
+%!   catch e
+%!     err = e.message;
+%!   end_try_catch
+%!   assert_equal (err, ...
+%!                 "harvest_package: the plan describes 'pkgfixb', not 'pkgfixa'.");
+%! unwind_protect_cleanup
+%!   __fixture_remove__ (state, tmp);
+%! end_unwind_protect
+
+## The reason the plan exists: a planned run must not need jsonencode or
+## jsondecode, which Octave gained only at 7.1.  Both are shadowed here by
+## functions that raise, so a run that finishes cannot have called either.
+%!test
+%! [state, tmp] = __fixture_install__ ();
+%! shadow = fullfile (tmp, 'shadow');
+%! mkdir (shadow);
+%! warning ('off', 'Octave:shadowed-function', 'local');
+%! unwind_protect
+%!   for name = {'jsonencode', 'jsondecode'}
+%!     __write__ (fullfile (shadow, [name{1} '.m']), ...
+%!                sprintf (['function varargout = %s (varargin)\n' ...
+%!                          '  error ("%s: unavailable");\nendfunction\n'], ...
+%!                         name{1}, name{1}));
+%!   endfor
+%!   addpath (shadow, '-begin');
+%!   planfile = fullfile (tmp, 'plan.txt');
+%!   __plan__ (planfile, tmp, 'pkgfixb');
+%!   harvest_package ('pkgfixb', planfile, tmp, 'plan', true);
+%!   txt = fileread (fullfile (tmp, 'pkgfixb.json'));
+%!   assert_equal (! isempty (strfind (txt, '"status":"ok"')), true);
+%! unwind_protect_cleanup
+%!   rmpath (shadow);
 %!   __fixture_remove__ (state, tmp);
 %! end_unwind_protect

@@ -176,7 +176,15 @@ function [json, S] = scan_functions (dirlist)
   S.oldstyle_classes = sortRecords (oldClasses);
   S.method_extensions = sortRecords (extensions);
 
-  json = jsonencode (S);
+  ## Encoded only when the caller asked for it.  harvest_package wants the
+  ## structure and discards this, and encoding it anyway is the one place the
+  ## scan would need JSON support that Octave gained only at 7.1 -- which is
+  ## the whole interpreter range the historical sweep reaches back through.
+  if (isargout (1))
+    json = encodeJSON (S);
+  else
+    json = '';
+  endif
 
 endfunction
 

@@ -163,7 +163,15 @@ endfunction
 function roots = packageRoots (pkgname)
 
   info = pkg ('list', pkgname);
-  candidates = {info{1}.dir, info{1}.archprefix};
+  ## Asked for by name rather than taken as given: "archprefix" is not a field
+  ## every "pkg" reports, and the older interpreters the historical sweep runs
+  ## under are exactly where it may be missing.
+  candidates = {};
+  for field = {'dir', 'archprefix'}
+    if (isfield (info{1}, field{1}))
+      candidates{end+1} = info{1}.(field{1});
+    endif
+  endfor
   roots = {};
   for ii = 1:numel (candidates)
     thisRoot = candidates{ii};

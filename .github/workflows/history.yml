@@ -60,6 +60,15 @@ jobs:
           name: package-index
           path: packages.json
 
+      # What each release needs, resolved here once.  The interpreters this
+      # sweep reaches back through have no jsondecode to read the index with,
+      # so the plan is the only thing they are given.
+      - name: Upload the plans
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-plans
+          path: plans
+
   harvest:
     needs: plan
     if: ${{ needs.plan.outputs.count != '0' }}
@@ -72,10 +81,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Download the index
+      - name: Download the plans
         uses: actions/download-artifact@v8
         with:
-          name: package-index
+          name: release-plans
+          path: plans
 
       # One image for the whole shard, which is why the shards are cut by era.
       - name: Pull the Octave image
@@ -83,21 +93,36 @@ jobs:
 
       - name: Harvest
         run: |
-          mkdir -p out
+          mkdir -p out tarballs
           for item in ${{ matrix.items }}
           do
             p="${item%@*}"
             v="${item##*@}"
+            plan="plans/$item.plan"
             echo "::group::harvest $p $v on Octave ${{ matrix.octave }}"
-            # Pinning the version alone resolves the whole closure as of the
-            # day that release shipped, which is the point of the exercise.
+            # Fetch the closure the plan names.  Downloading here rather than
+            # in the container keeps the network out of an interpreter whose
+            # "pkg" may not accept a URL at all, and leaves the tarballs on
+            # disk where a rerun can reuse them.
+            while IFS=$'\t' read -r kind name ver file url
+            do
+              [ "$kind" = "install" ] || continue
+              dest="tarballs/$(basename "$file")"
+              if [ ! -f "$dest" ]
+              then
+                curl -fsSL -o "$dest" "$url" \
+                  || echo "::warning::$name $ver: could not fetch $url"
+              fi
+            done < "$plan"
+            # Everything was resolved by the plan step; the container reads the
+            # plan and installs what it names.
             timeout 25m docker run --rm \
               --volume="$(pwd):/workdir:rw" \
               --workdir=/workdir \
               "${{ matrix.image }}" \
               octave-cli --eval "addpath ('/workdir'); \
-                harvest_package ('$p', '/workdir/packages.json', \
-                                 '/workdir/out', 'version', '$v');" || true
+                harvest_package ('$p', '/workdir/$plan', \
+                                 '/workdir/out', 'plan', true);" || true
             if [ ! -f "out/$p.json" ]
             then
               # The version is known here without consulting the index, since

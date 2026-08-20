@@ -29,6 +29,7 @@ import sys
 import plan
 
 SHARDS = int(os.environ.get("SHARDS", "8"))
+PLANS = "plans"
 PER_SHARD = int(os.environ.get("PER_SHARD", "6"))
 REQUESTED = os.environ.get("REQUESTED", "").split()
 MIN_OCTAVE = os.environ.get("MIN_OCTAVE", "7.1.0")
@@ -103,6 +104,78 @@ def era_of(releases, when, bounds=()):
     return chosen
 
 
+def select(index, package, asof):
+    """The newest release of a package dated on or before a day."""
+    for release in index.get(package, {}).get("versions") or []:
+        when = release.get("date")
+        if when and when <= asof:
+            return release
+    return None
+
+
+def dependency_names(release):
+    return [d for d in plan.dependency_names(release)
+            if d not in ("octave", "pkg")]
+
+
+def closure(index, package, asof, order, stack):
+    """Dependencies before dependents, every one resolved as of the same day.
+
+    Resolved here rather than in the interpreter because the interpreter that
+    will measure these releases may be as old as Octave 4.0, which has no
+    jsondecode to read the index with.  Doing it here also leaves one
+    implementation of the rule instead of two.
+    """
+    if package in order:
+        return order
+    if package in stack:
+        raise ValueError(f"circular dependency involving {package!r}")
+    release = select(index, package, asof)
+    if release is None:
+        raise LookupError(f"{package!r} had no release on or before {asof}")
+    for dep in dependency_names(release):
+        closure(index, dep, asof, order, stack + [package])
+    order[package] = release
+    return order
+
+
+def write_plan(index, item, path):
+    """Write what one release needs, for an interpreter that cannot resolve it.
+
+    Every install line carries the URL beside the file it belongs at, so that
+    whatever runs this plan can fetch the closure without consulting the index
+    either.
+    """
+    asof = item["asof"]
+    resolved = closure(index, item["package"], asof, {}, [])
+    target = resolved[item["package"]]
+    apt = []
+    for release in resolved.values():
+        apt.extend(release.get("ubuntu2604") or [])
+
+    lines = ["\t".join(["release", item["package"], target["id"],
+                        target.get("date") or "", target.get("sha256") or "",
+                        target.get("url") or ""]),
+             "\t".join(["policy", asof, "1", "1"])]
+    if apt:
+        lines.append("\t".join(["apt"] + sorted(set(apt))))
+    for name, release in resolved.items():
+        url = release.get("url") or ""
+        # Named after what the URL actually serves.  The index offers zip and
+        # bzip2 tarballs as well as gzip, and "pkg install" decides how to
+        # unpack a file from its suffix, so a zip saved as .tar.gz is refused.
+        suffix = ".tar.gz"
+        for candidate in (".tar.gz", ".tgz", ".zip", ".tar.bz2", ".tar.xz"):
+            if url.endswith(candidate):
+                suffix = candidate
+                break
+        fname = f"{name}-{release['id']}{suffix}"
+        lines.append("\t".join(["install", name, release["id"],
+                                "/workdir/tarballs/" + fname, url]))
+    with open(path, "w") as fid:
+        fid.write("\n".join(lines) + "\n")
+
+
 def main():
     with open("packages.json") as fid:
         index = json.load(fid)
@@ -147,7 +220,8 @@ def main():
                 below += 1
                 continue
             items.append({"package": name, "version": version,
-                          "octave": era["version"], "digest": era["digest"]})
+                          "asof": when, "octave": era["version"],
+                          "digest": era["digest"]})
 
     missing = [p for p in REQUESTED if p not in index]
     if missing:
@@ -165,6 +239,24 @@ def main():
           f"before the oldest image {predating}, no Octave meets the declared "
           f"bounds {incompatible}, below Octave {MIN_OCTAVE} {below}, "
           f"not pkg-installable {uninstallable}, undated {undated}")
+
+    # A plan each, so that nothing downstream has to read the index.  A release
+    # whose closure cannot be resolved is dropped here, with its reason named,
+    # rather than failing later inside a container.
+    os.makedirs(PLANS, exist_ok=True)
+    planned = []
+    for item in items:
+        path = os.path.join(PLANS, f"{item['package']}@{item['version']}.plan")
+        try:
+            write_plan(index, item, path)
+        except (LookupError, ValueError) as err:
+            print(f"::warning::{item['package']} {item['version']}: {err}")
+            continue
+        planned.append(item)
+    if len(planned) != len(items):
+        print(f"{len(items) - len(planned)} release(s) dropped: the index no "
+              f"longer lists a dependency they need")
+    items = planned
 
     # One image per shard: pulling is the expensive part, and an era measured
     # by one job is an era whose core record is written by one job too.

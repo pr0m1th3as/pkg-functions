@@ -3,9 +3,12 @@
 Harvest what every package in [Octave Packages][index] actually provides, and
 record it as data.
 
+**Browse it: <https://pr0m1th3as.github.io/pkg-functions/>**
+
 This is a prototype for [gnu-octave/packages#124][issue], the request to search
 for individual function names within packages. It is **not an installable
-Octave package** — it is CI infrastructure, cloned and run.
+Octave package** — it is CI infrastructure, cloned and run, plus a static
+reader for what it produces.
 
 [index]: https://gnu-octave.github.io/packages/
 [issue]: https://github.com/gnu-octave/packages/issues/124
@@ -30,8 +33,11 @@ tell them apart:
   no arguments.
 
 So each package is installed in a container, loaded, and measured. As a check
-on the method: `statistics` is measured at 546 names, which is exactly what its
-own `INDEX` lists.
+on the method: of the 458 names `statistics` 1.8.4 advertises in its own
+`INDEX`, **every one is measured** — and three more besides, `gmdistribution`,
+`qrandn` and `randsample`, which are on the load path and callable but were
+never advertised. A measurement can be a superset of the manifest; it should
+never be a subset.
 
 ## The chain
 
@@ -45,7 +51,7 @@ packages.json  ──▶  harvest_package  ──▶  package_paths  ──▶  
 `package_paths` is the part that is easy to get wrong. `pkg load` pulls in
 dependencies, so a single before-and-after difference credits a package with
 everything they provide as well — loading `statistics` that way appears to add
-605 names, 59 of which belong to `datatypes`. The whole dependency closure is
+520 names, 59 of which belong to `datatypes`. The whole dependency closure is
 therefore unloaded and reloaded one package at a time, and each result is
 cross-checked against the package's own installation directories. Anything
 added from outside them is reported: a package that puts a foreign directory on
@@ -64,11 +70,18 @@ One file per release, and a release once measured is never overwritten:
 
 ```
 data/statistics/1.8.4.json     what that release provided, as measured
-data/statistics/1.9.0.json
+data/statistics/1.8.3.json
+data/__core__/11.3.0.json      core Octave, stored as one more provider
 data/index.json                package → newest release, status, releases held
-data/functions.json            name → the packages providing it
-data/collisions.json           names provided by more than one package
+data/functions.json            name → what provides it, core Octave included
+data/collisions.json           names two packages both answer to
+data/core_shadowing.json       what packages take over from core, and when
+data/dependencies.json         who depends on whom, declared and resolved
+data/history.json              every release that ever carried each name
 ```
+
+The first five are small enough to read in one go; `history.json` is not, at
+1.7 MB, and is fetched only when something asks for one name's past.
 
 The scheduled sweep harvests the **newest** release of each package, and
 history accumulates forwards from the first run at no extra cost. Older
@@ -145,11 +158,32 @@ The earliest release held for a package is a baseline rather than an event:
 nothing before it was measured, so what it shadows cannot be said to have
 started there. Changes are reported from the second release on.
 
+## The reader
+
+[`site/`](site/) is a static page over that JSON — no build step, no server of
+its own, and no dependency beyond the Bootstrap and Font Awesome that
+[Octave Packages][index] and `pkg-octave-doc` already use, so it looks like the
+rest of the ecosystem rather than like a separate thing. Five views: which
+packages provide a name, what a package provides and builds on, the names two
+packages both answer to, what packages take over from core, and when any of
+that changed. Dependency trees and both timelines are drawn as plain SVG.
+
+Published from the repository root by GitHub Pages. The entry point is
+`index.html` at the root, so the site answers at the bare URL above rather than
+at `/site/`, and the data stays at `data/` where everything else expects it —
+the same shape [Octave Packages][index] uses. Publishing `/docs` instead would
+serve the page and leave the data unreachable, since that source publishes only
+that one folder.
+
 ## Running it
 
-The `Harvest package functions` workflow runs weekly, and can be dispatched by
-hand with a list of packages. For a first run, name a few rather than letting it
-loose on the whole index.
+The `Harvest package functions` workflow runs twice daily and keeps up with
+the present: it measures the newest release of each package and retries
+whatever failed last time. `Harvest past package releases` is dispatched by
+hand and does the other thing — it walks back through releases already
+published, each under the Octave of its own day. Both take a list of package
+names; for a first run, name a few rather than letting either loose on the
+whole index.
 
 Locally, against an already installed package:
 
@@ -168,9 +202,14 @@ addpath ('/path/to/pkg-functions');
   interpreter's own message, and retried on the next run. It is not dropped, so
   a package that needs a library the runner does not have appears as what it is
   rather than as a package that provides nothing.
-- **There is no search interface.** This repository produces the data; what
-  reads it is a separate question, and per the guidance in issue #124 that
-  question is not settled by opening a pull request against the package index.
+- **The reader is a prototype, and where it belongs is still open.** It lives
+  in [`site/`](site/) and is deliberately self-contained, so moving it to a
+  repository of its own is a `git mv` and nothing more. Per the guidance in
+  issue #124, that question is not settled by opening a pull request against
+  the package index.
+- **A namespace is not a name.** `+geom/` is a directory; only what is inside
+  it is callable, so `geom.arclength` is recorded and `geom` is not. The reader
+  will search a namespace, but the data set does not invent an entry for one.
 
 ## Licence
 

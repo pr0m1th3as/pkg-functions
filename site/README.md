@@ -1,7 +1,10 @@
 # The reader
 
-A static page over the harvested data set. It fetches the five derived files at
-`../data/` and asks for a single release record only when someone opens one.
+A static page over the harvested data set. Its entry point is `index.html` at
+the repository root — so the site answers at `/pkg-functions/` rather than
+`/pkg-functions/site/`, the way Octave Packages does — and everything it draws
+with lives here. It fetches the derived files at `data/` and asks for a single
+release record only when someone opens one.
 
 The look is the one Octave Packages and `pkg-octave-doc` use: Bootstrap 5.1.0
 and Font Awesome 5.15.4, from the same CDNs and at the same versions those
@@ -16,7 +19,7 @@ data by a relative path:
 
 ```bash
 python3 -m http.server 8000        # from the repository root
-# then open http://127.0.0.1:8000/site/
+# then open http://127.0.0.1:8000/
 ```
 
 Opening `index.html` off disk does not work: `fetch` refuses a `file://`
@@ -24,8 +27,10 @@ request for the JSON beside it.
 
 ## Publishing it
 
-GitHub Pages, serving from the **repository root** rather than `/docs`, puts
-the page at `/site/` with the data at `/data/` where it expects it.
+GitHub Pages, serving from the **repository root** rather than `/docs`.
+`/docs` publishes that folder alone, which would leave `data/` unreachable and
+the page loading for ever; the data would have to move inside it, and the data
+set is the point of this repository rather than an asset of its website.
 
 ## The five views
 

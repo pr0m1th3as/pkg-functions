@@ -9,7 +9,10 @@
 
 'use strict';
 
-var DATA = '../data/';
+/* Relative to the page, which is served from the repository root: the
+   entry point lives there so the site answers at /pkg-functions/ rather
+   than /pkg-functions/site/, as Octave Packages does. */
+var DATA = 'data/';
 var db = {};
 
 var CORE = '__core__';

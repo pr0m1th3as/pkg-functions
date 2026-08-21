@@ -33,10 +33,10 @@ SAFE_VERSION = re.compile(r"^[A-Za-z0-9._+-]+$")
 # under in the search index.
 CATEGORIES = {
     "functions": "function",
-    "namespaced_functions": "function",
+    "namespaced_functions": "namespace function",
     "scripts": "script",
     "classes": "class",
-    "namespaced_classes": "class",
+    "namespaced_classes": "namespace class",
     "oldstyle_classes": "class",
     "method_extensions": "extension",
 }
@@ -45,6 +45,13 @@ CATEGORIES = {
 # method extension is excluded: it adds methods to a type named elsewhere.
 LOAD_PATH_CATEGORIES = ("functions", "namespaced_functions", "scripts",
                         "classes", "namespaced_classes", "oldstyle_classes")
+
+# The kinds those categories produce.  A method or a property is reachable only
+# through an object of its own class and contends with nothing, but a
+# namespaced function occupies "ns.name" on the load path as surely as a plain
+# one occupies "name".
+CONTENDING = ("function", "script", "class", "namespace function",
+              "namespace class")
 
 
 def load(path):
@@ -57,6 +64,102 @@ def save(path, obj):
     with open(path, "w") as fid:
         json.dump(obj, fid, sort_keys=True, separators=(",", ":"))
         fid.write("\n")
+
+
+DEPENDENCY = re.compile(r"^\s*([A-Za-z0-9_.+-]+)\s*(?:\(\s*([^)]*?)\s*\))?\s*$")
+
+
+def declared_dependencies(index, package, version):
+    """What a release names as dependencies, and the least it will accept.
+
+    The index is the only place a *direct* dependency is recorded, and the only
+    place the version constraint is recorded at all: a record says which
+    version was installed, never which one was asked for.  Both are worth
+    having side by side, because they are usually not the same number -- a
+    package that declares ">= 1.2.6" is routinely built against something much
+    newer, and that gap is the interesting part.
+    """
+    for release in (index.get(package, {}).get("versions") or []):
+        if release.get("id") != version:
+            continue
+        names, requires = [], {}
+        for dep in release.get("depends") or []:
+            if isinstance(dep, dict):
+                name = dep.get("name")
+                wants = " ".join(x for x in (dep.get("operator"),
+                                             dep.get("version")) if x)
+            else:
+                found = DEPENDENCY.match(str(dep))
+                if not found:
+                    continue
+                name, wants = found.group(1), (found.group(2) or "")
+            if name and name not in ("octave", "pkg"):
+                names.append(name)
+                requires[name] = wants
+        return names, requires
+    return [], {}
+
+
+def dependency_view(index, byname):
+    """Who depends on whom, release by release, and what that resolved to."""
+    packages, dependents = {}, {}
+    for package, records in sorted(byname.items()):
+        if package == CORE:
+            continue
+        series = []
+        for record in sorted((r for r in records if r.get("status") == "ok"),
+                             key=release_order):
+            version = record.get("version")
+            declares, requires = declared_dependencies(index, package,
+                                                       version)
+            resolved = {d["name"]: d["version"]
+                        for d in (record.get("dependencies") or [])}
+            series.append({"version": version, "date": record.get("date"),
+                           "octave": record.get("octave"),
+                           "declares": declares, "requires": requires,
+                           "resolved": resolved})
+            for name in declares:
+                dependents.setdefault(name, set()).add(package)
+        if series:
+            packages[package] = series
+    return {"packages": packages,
+            "dependents": {k: sorted(v) for k, v in sorted(dependents.items())}}
+
+
+def name_history(byname, index):
+    """Every release that ever provided each name, reduced to its span.
+
+    Built from the stored records rather than from the current index, which is
+    the whole point: a name that left a package years ago is still a fact about
+    that package, and nothing else records it.  Core Octave is one more
+    provider here, so a function's whole story -- who carried it, when it
+    entered core and when it left -- reads in one place.
+    """
+    out = {}
+    for provider, records in byname.items():
+        for record in sorted((r for r in records if r.get("status") == "ok"),
+                             key=release_order):
+            version, date = record.get("version"), record.get("date")
+            for name in sorted(load_path_names(record)):
+                seen = out.setdefault(name, {}).setdefault(provider, {})
+                seen.setdefault("first", version)
+                seen.setdefault("from", date)
+                seen["last"], seen["to"] = version, date
+                seen["count"] = seen.get("count", 0) + 1
+            # Members are carried too: "history of a method" is a fair question
+            # and the records answer it.
+            contents = record.get("contents") or {}
+            for category in CATEGORIES:
+                for item in contents.get(category) or []:
+                    for member in ((item.get("methods") or [])
+                                   + (item.get("properties") or [])):
+                        full = item["name"] + "." + member
+                        seen = out.setdefault(full, {}).setdefault(provider, {})
+                        seen.setdefault("first", version)
+                        seen.setdefault("from", date)
+                        seen["last"], seen["to"] = version, date
+                        seen["count"] = seen.get("count", 0) + 1
+    return out
 
 
 def octave_release_dates():
@@ -322,6 +425,11 @@ def main():
     # The search index: one entry per name a package provides, plus the methods
     # and properties of every class, which are searchable but cannot collide
     # with a free function and so are marked as members.
+    # Keyed by the whole name the load path answers to, never by part of one.
+    # A namespaced function is "ns.name" and contends only with the same
+    # "ns.name": +dxf/mean.m and +dfg/mean.m are two different functions and
+    # must never be reported as one, while two packages both shipping
+    # +dxf/mean.m genuinely are in each other's way.
     names = {}
     for package, record in sorted(latest.items()):
         contents = record.get("contents") or {}
@@ -336,16 +444,33 @@ def main():
                     names.setdefault(item["name"] + "." + member, []).append(
                         {"package": package, "kind": "property"})
 
+    # Core Octave answers to names too, and a reader looking one up should be
+    # told so.  It is a provider in this index and nowhere else: the collision
+    # view below counts packages contending with each other, which is a
+    # different question from a package replacing core, and that one has a view
+    # of its own.
+    core_now = newest_release(None, CORE, byname.get(CORE, []))
+    if core_now:
+        for name in (core_now.get("names") or []):
+            names.setdefault(name, []).append({"package": CORE, "kind": "core"})
+
     save(os.path.join(DATA, "functions.json"), names)
+    save(os.path.join(DATA, "history.json"), name_history(byname, index))
+
+    # Who depends on whom, which no other file answers: index.json carries no
+    # dependencies at all, and a record's closure is flattened.
+    save(os.path.join(DATA, "dependencies.json"), dependency_view(index or {},
+                                                                 byname))
 
     (collision_changes, shadowing_changes,
      final_state, final_extensions) = timeline(byname)
 
     # Names more than one package puts on the load path, as things stand.
     current_collisions = {
-        name: providers for name, providers in names.items()
-        if len({p["package"] for p in providers}) > 1
-        and any(p["kind"] in ("function", "script", "class") for p in providers)
+        name: [p for p in providers if p["package"] != CORE]
+        for name, providers in names.items()
+        if len({p["package"] for p in providers if p["package"] != CORE}) > 1
+        and any(p["kind"] in CONTENDING for p in providers)
     }
     save(os.path.join(DATA, "collisions.json"),
          {"current": current_collisions, "changes": collision_changes})
@@ -391,6 +516,10 @@ def main():
                       "packages": packages},
           "core_releases": sorted((r["version"] for r in core_records),
                                   key=version_key),
+          # The day each of those became current, so a reader can place a
+          # change against what core was doing without opening every record.
+          "core_dates": {r["version"]: r.get("date")
+                         for r in core_records if r.get("date")},
           "history": history,
           "changes": shadowing_changes})
 

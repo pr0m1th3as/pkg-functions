@@ -1,0 +1,50 @@
+/* Only what Bootstrap does not already carry.  The look is the one Octave
+   Packages and pkg-octave-doc use, so the additions here are limited to the
+   things this reader draws itself: trees, timelines and name grids. */
+
+code, .mono { font-family: Consolas, "Courier New", monospace; }
+
+.card-header-mod { background-color: #f8f9fa; }
+
+.namegrid { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.namegrid .badge { font-family: Consolas, "Courier New", monospace;
+                   font-weight: 400; font-size: 0.8rem; }
+
+table.tight td, table.tight th { padding: 0.3rem 0.5rem; vertical-align: top; }
+table.tight td.mono { white-space: nowrap; }
+
+/* Drawn figures ---------------------------------------------------------- */
+
+/* .figure scales to its column; .plot keeps the pixel size it was drawn at and
+   is scrolled instead, so a package with many releases stays readable. */
+svg.figure { width: 100%; height: auto; display: block; }
+svg.plot { display: block; }
+/* .plot is drawn at its true pixel size and never scaled, so its type has to
+   be set at a size that is readable as-is; .figure is stretched to the column
+   and comes out larger than it is written. */
+svg.figure text { font: 12px Consolas, "Courier New", monospace; fill: #495057; }
+svg.figure text.title { font: 600 13px system-ui, sans-serif; fill: #212529; }
+svg.plot text { font: 14px Consolas, "Courier New", monospace; fill: #495057; }
+svg.plot text.title { font: 600 15px system-ui, sans-serif; fill: #212529; }
+svg.figure .grid, svg.plot .grid { stroke: #dee2e6; stroke-width: 1; }
+svg.figure .corerule { stroke: #6f42c1; stroke-width: 1; stroke-dasharray: 2 2;
+                       opacity: 0.5; }
+svg.figure .edge, svg.plot .edge { stroke: #adb5bd; fill: none; stroke-width: 1.5; }
+svg.figure .node { fill: #fff; stroke: #0d6efd; stroke-width: 1.5; }
+svg.figure .node.root { fill: #0d6efd; stroke: #0d6efd; }
+svg.figure .node.core { fill: #fff; stroke: #6f42c1; }
+svg.figure text.nodelabel { fill: #212529; }
+svg.figure text.nodelabel.root { fill: #fff; }
+svg.figure .added, svg.plot .added { fill: #fd7e14; }
+svg.figure .removed { fill: #fff; stroke: #6c757d; stroke-width: 1.2; }
+svg.figure .bycore { fill: #6f42c1; }
+
+.legend span { margin-right: 1rem; white-space: nowrap; }
+.legend i { display: inline-block; width: 0.7rem; height: 0.7rem;
+            border-radius: 50%; margin-right: 0.25rem; vertical-align: -1px; }
+
+/* Bootstrap has no purple background utility, and purple is the colour this
+   reader uses throughout for "core Octave is involved". */
+.bg-purple { background-color: #6f42c1 !important; }
+
+svg.figure text.wants { fill: #6c757d; font-size: 10px; }

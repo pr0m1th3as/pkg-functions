@@ -2,12 +2,20 @@ name: Harvest package functions
 
 on:
   schedule:
-    # Twice daily.  The index is rebuilt on its own 01:00 cron and again on
-    # every push to the packages repository, so a release merged during the
-    # day is visible well before the next morning.  A run that finds nothing
-    # changed costs one short job: the harvest is skipped entirely when the
-    # plan comes back empty.
-    - cron: '0 3,15 * * *'
+    # Hourly.  The index republishes on every push to the packages repository
+    # and on its own 01:00 cron, so a release is measured within the hour of
+    # being listed.  Polling this often is affordable because a run that finds
+    # nothing changed costs one short job and nothing else: plan.py skips any
+    # release whose checksum it already holds, and the harvest is gated on the
+    # plan coming back non-empty.
+    #
+    # The alternative is for the packages repository to fire a
+    # repository_dispatch once its site has deployed, which would cut the delay
+    # to minutes.  That needs a token with write access to this repository
+    # stored in theirs, expiring within the year, and a silent failure there
+    # would stop harvesting here with no signal.  This is cheaper and answers
+    # to nobody.
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       packages:

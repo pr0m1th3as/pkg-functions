@@ -213,7 +213,7 @@ function viewSearch (arg, query) {
 
     count.textContent = hits.length + (quoted ? ' exact match' : ' name')
       + (hits.length === 1 ? '' : (quoted ? 'es' : 's'))
-      + (hits.length > 200 ? ' — showing the first 200' : '');
+      + (hits.length > 200 ? ', showing the first 200' : '');
     if (! hits.length) {
       tbody.appendChild (el ('tr', {}, [el ('td', {class: 'text-muted',
         text: quoted ? 'No package provides exactly that name.'
@@ -243,7 +243,7 @@ function viewSearch (arg, query) {
     }).filter (wanted);
     count.textContent = hits.length + ' name' + (hits.length === 1 ? '' : 's')
       + ' in the ' + asTyped + ' namespace'
-      + (hits.length > 200 ? ' — showing the first 200' : '');
+      + (hits.length > 200 ? ', showing the first 200' : '');
     hits.slice (0, 200).forEach (function (name) {
       tbody.appendChild (nameRow (name));
     });
@@ -258,7 +258,7 @@ function viewSearch (arg, query) {
   return card ('Every name every package provides',
     'Measured by installing each release and reading what it actually adds to '
     + 'the load path, not by reading what it declares. ' + db.sorted.length
-    + ' names across ' + Object.keys (db.index).length + ' packages — '
+    + ' names across ' + Object.keys (db.index).length + ' packages: '
     + 'functions, scripts and classes, and the methods and properties of every '
     + 'class.',
     [box, toggles, count, table]);
@@ -332,7 +332,7 @@ function viewName (name) {
   }
   here.appendChild (card (name,
     (Object.keys (kinds).join (', ') || 'core Octave')
-    + ' — what answers to this name now', now));
+    + ', what answers to this name now', now));
 
   var holder = el ('div');
   here.appendChild (holder);
@@ -439,9 +439,9 @@ function viewPackage (name) {
                  text: term}),
       el ('td', {class: mono ? 'mono' : '', text: value})]));
   }
-  fact ('newest release', (info.latest || '—')
+  fact ('newest release', (info.latest || 'none')
         + (info.date ? '   ' + info.date : ''), true);
-  fact ('status', info.status + (info.message ? ' — ' + info.message : ''));
+  fact ('status', info.status + (info.message ? ': ' + info.message : ''));
   fact ('releases measured', info.releases.length);
   if (taken && (taken.shadows || []).length) {
     fact ('replaces in core', taken.shadows.join ('  '), true);
@@ -471,7 +471,7 @@ function viewPackage (name) {
       'One lane per dependency, one mark per release, labelled with the '
       + 'version that release was actually built against. A lane that stops '
       + 'is a dependency dropped; one that starts late was taken on.'
-      + (series.length > 9 ? '  ' + series.length + ' releases — scroll '
+      + (series.length > 9 ? '  ' + series.length + ' releases, scroll '
          + 'sideways for the rest.' : ''),
       drawDependencyHistory (series)));
   }
@@ -846,9 +846,9 @@ function viewTimeline () {
       class: m.event === 'added' ? (m.bycore ? 'bycore' : 'added') : 'removed',
       cx: x (m.date), cy: yy3, r: r});
     dot.appendChild (svg ('title', {text:
-      m.date + ' — ' + m.event + ' ' + m.count + ' name'
+      m.date + ': ' + m.event + ' ' + m.count + ' name'
       + (m.count === 1 ? '' : 's') + ' (' + m.names.join (', ')
-      + (m.count > m.names.length ? ', …' : '') + ') — caused by ' + m.cause}));
+      + (m.count > m.names.length ? ', …' : '') + '), caused by ' + m.cause}));
     fig.appendChild (dot);
   });
 

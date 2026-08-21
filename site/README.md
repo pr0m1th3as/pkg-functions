@@ -1,15 +1,16 @@
 # The reader
 
 A static page over the harvested data set. Its entry point is `index.html` at
-the repository root — so the site answers at `/pkg-functions/` rather than
-`/pkg-functions/site/`, the way Octave Packages does — and everything it draws
+the repository root, so the site answers at `/pkg-functions/` rather than
+`/pkg-functions/site/`, the way Octave Packages does, and everything it draws
 with lives here. It fetches the derived files at `data/` and asks for a single
 release record only when someone opens one.
 
 The look is the one Octave Packages and `pkg-octave-doc` use: Bootstrap 5.1.0
 and Font Awesome 5.15.4, from the same CDNs and at the same versions those
 pages pin, so a reader moving between them does not notice a seam. Everything
-this page draws itself — dependency trees, the change timeline — is plain SVG.
+this page draws itself, the dependency trees and the change timeline, is plain
+SVG.
 A chart library would weigh more than the rest of the repository put together.
 
 ## Running it
@@ -51,11 +52,11 @@ and it was drawn from measurements rather than from anybody's memory.
 | Typed | Means |
 |-------|-------|
 | `mean` | anything containing it, exact names first |
-| `"mean"` | that name exactly — `BaseArray.mean` yes, `anova.groupmeans` no |
+| `"mean"` | that name exactly: `BaseArray.mean` yes, `anova.groupmeans` no |
 | `+geom` | everything the `geom` namespace holds, nesting included |
 
 Core Octave is one of the providers, so a name no package carries is still
-found. Clicking any name opens what has answered to it over time — every
+found. Clicking any name opens what has answered to it over time: every
 measured release of every package, core included.
 
 A quoted query matches any dot-separated part of a name, because either part is

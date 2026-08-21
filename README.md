@@ -7,7 +7,7 @@ record it as data.
 
 This is a prototype for [gnu-octave/packages#124][issue], the request to search
 for individual function names within packages. It is **not an installable
-Octave package** — it is CI infrastructure, cloned and run, plus a static
+Octave package**. It is CI infrastructure, cloned and run, plus a static
 reader for what it produces.
 
 [index]: https://gnu-octave.github.io/packages/
@@ -24,8 +24,8 @@ tell them apart:
 
 - compiled functions do not exist until the package is built, so no reading of
   a source tarball can list them;
-- a namespaced class resolves only when it is reachable — `NormalDistribution`
-  is not a name, `prob.NormalDistribution` is;
+- a namespaced class resolves only when it is reachable, so
+  `NormalDistribution` is not a name and `prob.NormalDistribution` is;
 - old-style `@class` directories are invisible to classdef reflection, and a
   `@dir` without a constructor is not a class at all but a set of methods
   grafted onto a type defined elsewhere;
@@ -34,7 +34,7 @@ tell them apart:
 
 So each package is installed in a container, loaded, and measured. As a check
 on the method: of the 458 names `statistics` 1.8.4 advertises in its own
-`INDEX`, **every one is measured** — and three more besides, `gmdistribution`,
+`INDEX`, **every one is measured**, and three more besides: `gmdistribution`,
 `qrandn` and `randsample`, which are on the load path and callable but were
 never advertised. A measurement can be a superset of the manifest; it should
 never be a subset.
@@ -50,7 +50,7 @@ packages.json  ──▶  harvest_package  ──▶  package_paths  ──▶  
 
 `package_paths` is the part that is easy to get wrong. `pkg load` pulls in
 dependencies, so a single before-and-after difference credits a package with
-everything they provide as well — loading `statistics` that way appears to add
+everything they provide as well. Loading `statistics` that way appears to add
 520 names, 59 of which belong to `datatypes`. The whole dependency closure is
 therefore unloaded and reloaded one package at a time, and each result is
 cross-checked against the package's own installation directories. Anything
@@ -90,7 +90,7 @@ each is installed with its whole dependency closure resolved **as of the day it
 shipped**, under the Octave that was current on that day. Resolving those
 dependencies to today's versions would build a combination that never existed
 and file it under a version that did, which is why it is a policy and not a
-default — every record says which one produced it.
+default, and every record says which one produced it.
 
 ## How far back this reaches
 
@@ -99,7 +99,7 @@ Octave Packages still lists, and the index is a forward-looking registry rather
 than an archive.
 
 The shape of what it remembers is stark. Of the releases it lists, **32 were
-published between 2009 and 2018 — nine years — against 540 since 2022**. Eighty
+published between 2009 and 2018 (nine years) against 540 since 2022**. Eighty
 seven of its 139 packages have their entire listed history starting in 2020 or
 later, and 42 list exactly one release. `statistics` appears with 28 releases,
 the earliest dated 2020-03-23; it did not begin in 2020, and neither did
@@ -108,7 +108,7 @@ missing were mostly published under Octave Forge and are not reachable from
 anything the index records.
 
 The same gap shows from the other side: fourteen listed releases declare a
-dependency whose earliest *listed* version is younger than the release itself —
+dependency whose earliest *listed* version is younger than the release itself.
 `data-smoothing` 1.3.0, from 2012, requires `optim`, whose earliest listed
 release is 2019. Those cannot be reconstructed at all, and are recorded as
 failures naming the reason.
@@ -128,7 +128,7 @@ Each record also answers the question a search box cannot: what does loading
 this package change about Octave itself?
 
 `core_shadowing` lists the names the package puts on the load path that core
-already answers to — built-in functions included, since a package overriding
+already answers to, built-in functions included, since a package overriding
 `size` or `zeros` is the worst case there is. These are not coincidences.
 `pkg load` **prepends** to the load path, so every name on that list is a core
 function the package replaces for anyone who loads it.
@@ -140,18 +140,18 @@ seeing separately rather than not at all.
 
 Both are measured against a load path read before anything is installed or
 loaded, and core is identified by the interpreter's own installation roots with
-`site` directories excluded — so neither the current directory, nor a package
+`site` directories excluded, so that neither the current directory nor a
 that happened to be loaded already, nor a local site install can be mistaken for
 part of core.
 
 `data/core_shadowing.json` gathers this across the ecosystem, in three views:
 
-- `current` — what the newest release of each package takes over, indexed both
+- `current`: what the newest release of each package takes over, indexed both
   by core name and by package;
-- `history` — the whole series for every package that has ever taken something
+- `history`: the whole series for every package that has ever taken something
   over, so the release where a name was *given up* is as visible as the one
   where it was taken;
-- `changes` — each name entering or leaving, with the release and date it
+- `changes`: each name entering or leaving, with the release and date it
   happened.
 
 The earliest release held for a package is a baseline rather than an event:
@@ -160,7 +160,7 @@ started there. Changes are reported from the second release on.
 
 ## The reader
 
-[`site/`](site/) is a static page over that JSON — no build step, no server of
+[`site/`](site/) is a static page over that JSON: no build step, no server of
 its own, and no dependency beyond the Bootstrap and Font Awesome that
 [Octave Packages][index] and `pkg-octave-doc` already use, so it looks like the
 rest of the ecosystem rather than like a separate thing. Five views: which
@@ -170,17 +170,19 @@ that changed. Dependency trees and both timelines are drawn as plain SVG.
 
 Published from the repository root by GitHub Pages. The entry point is
 `index.html` at the root, so the site answers at the bare URL above rather than
-at `/site/`, and the data stays at `data/` where everything else expects it —
+at `/site/`, and the data stays at `data/` where everything else expects it,
 the same shape [Octave Packages][index] uses. Publishing `/docs` instead would
 serve the page and leave the data unreachable, since that source publishes only
 that one folder.
 
 ## Running it
 
-The `Harvest package functions` workflow runs twice daily and keeps up with
-the present: it measures the newest release of each package and retries
-whatever failed last time. `Harvest past package releases` is dispatched by
-hand and does the other thing — it walks back through releases already
+The `Harvest package functions` workflow runs hourly and keeps up with the
+present: it measures the newest release of each package and retries whatever
+failed last time. Polling that often is affordable because a run that finds
+nothing new costs one short job, `plan.py` having skipped every release whose
+checksum it already holds. `Harvest past package releases` is dispatched by
+hand and does the other thing: it walks back through releases already
 published, each under the Octave of its own day. Both take a list of package
 names; for a first run, name a few rather than letting either loose on the
 whole index.

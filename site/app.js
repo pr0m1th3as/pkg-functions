@@ -52,6 +52,14 @@ function apply (node, attrs, kids) {
   });
 }
 
+/* Every figure that scrolls opens at its right-hand end: they are all drawn
+   oldest-first and grow at the newer end, so what a reader wants to see first
+   is the recent part.  Deferred, because an element cannot be scrolled before
+   it is in the document. */
+function openAtTheEnd (scroller) {
+  setTimeout (function () { scroller.scrollLeft = scroller.scrollWidth; }, 0);
+}
+
 /* A Bootstrap card, which is the unit every view is built from. */
 function card (title, lede, body) {
   var head = el ('div', {class: 'card-header card-header-mod'});
@@ -614,6 +622,7 @@ function drawDependencyHistory (series) {
 
   var scroller = el ('div', {class: 'overflow-auto flex-grow-1'});
   scroller.appendChild (plot);
+  openAtTheEnd (scroller);
   return el ('div', {class: 'd-flex align-items-start'}, [labels, scroller]);
 }
 
@@ -845,6 +854,7 @@ function viewTimeline () {
 
   var scroller = el ('div', {class: 'overflow-auto flex-grow-1'});
   scroller.appendChild (fig);
+  openAtTheEnd (scroller);
   var figure = el ('div', {class: 'd-flex align-items-start'},
                    [labels, scroller]);
 

@@ -770,56 +770,80 @@ function viewTimeline () {
     .concat (db.core.core_releases.map (function (v) {
       return days (coreDate (v)); }).filter (function (d) { return d > 1000; }));
   var lo = Math.min.apply (null, all), hi = Math.max.apply (null, all);
-  var padL = 150, padR = 24, padT = 34, rowH = 34;
-  var width = 980, height = padT + lanes.length * rowH + 46;
-  var span = Math.max (hi - lo, 1);
+
+  /* A fixed number of pixels per year, and scrolled rather than squeezed.
+     Eleven years already crowd the core releases against one another; drawn to
+     fit a column, another five would be unreadable, and this figure is meant
+     to outlast that. */
+  /* padL keeps the first year label from being cut in half against the edge
+     of the scroller. */
+  var pxPerYear = 132, labelW = 150, padT = 78, rowH = 34, padL = 22, padR = 30;
+  var y0 = parseInt (isoOf (lo).slice (0, 4), 10);
+  var y1 = parseInt (isoOf (hi).slice (0, 4), 10) + 1;
+  var span = days (y1 + '-01-01') - days (y0 + '-01-01');
+  var plotW = padL + Math.round (span / 365.25 * pxPerYear) + padR;
+  var height = padT + lanes.length * rowH + 34;
   function x (date) {
-    return padL + (days (date) - lo) / span * (width - padL - padR);
+    return padL + (days (date) - days (y0 + '-01-01')) / span
+                  * (plotW - padL - padR);
   }
 
-  var fig = svg ('svg', {class: 'figure', viewBox: '0 0 ' + width + ' ' + height,
+  var labels = svg ('svg', {width: labelW, height: height, class: 'plot flex-shrink-0',
+                            viewBox: '0 0 ' + labelW + ' ' + height});
+  lanes.forEach (function (pkg, row) {
+    labels.appendChild (svg ('text', {x: labelW - 12,
+      y: padT + row * rowH + rowH / 2 + 4, 'text-anchor': 'end',
+      class: 'title', text: pkg}));
+  });
+
+  var fig = svg ('svg', {class: 'plot', width: plotW, height: height,
+                         viewBox: '0 0 ' + plotW + ' ' + height,
                          role: 'img', 'aria-label': 'when shadowing changed'});
 
-  /* Years, so the eye has something to measure against. */
-  var y0 = parseInt (isoOf (lo).slice (0, 4), 10);
-  var y1 = parseInt (isoOf (hi).slice (0, 4), 10);
   for (var yy = y0; yy <= y1; yy++) {
     var xx = x (yy + '-01-01');
-    if (xx < padL - 2 || xx > width) continue;
-    fig.appendChild (svg ('line', {class: 'grid', x1: xx, y1: padT - 10,
+    fig.appendChild (svg ('line', {class: 'grid', x1: xx, y1: padT - 12,
       x2: xx, y2: padT + lanes.length * rowH}));
-    fig.appendChild (svg ('text', {x: xx, y: padT + lanes.length * rowH + 16,
-      'text-anchor': 'middle', text: yy}));
+    fig.appendChild (svg ('text', {x: xx, y: padT + lanes.length * rowH + 18,
+      'text-anchor': 'middle', class: 'title', text: yy}));
   }
 
-  /* Every core release, so a mark can be read against what core was doing. */
+  /* Each core release named on its own rule, turned on its side because there
+     is no room to write them across at this density. */
   db.core.core_releases.forEach (function (v) {
     var date = coreDate (v);
     if (! date) return;
-    fig.appendChild (svg ('line', {class: 'corerule', x1: x (date), y1: padT - 10,
-      x2: x (date), y2: padT + lanes.length * rowH}));
+    var xv = x (date);
+    fig.appendChild (svg ('line', {class: 'corerule', x1: xv, y1: padT - 12,
+      x2: xv, y2: padT + lanes.length * rowH}));
+    fig.appendChild (svg ('text', {class: 'corelabel', x: xv, y: padT - 18,
+      'text-anchor': 'start',
+      transform: 'rotate(-90 ' + xv + ' ' + (padT - 18) + ')', text: v}));
   });
 
   lanes.forEach (function (pkg, row) {
-    var yy = padT + row * rowH + rowH / 2;
-    fig.appendChild (svg ('text', {x: padL - 12, y: yy + 4, 'text-anchor': 'end',
-                                   class: 'title', text: pkg}));
-    fig.appendChild (svg ('line', {class: 'grid', x1: padL, y1: yy,
-                                   x2: width - padR, y2: yy, opacity: '0.4'}));
+    var yy2 = padT + row * rowH + rowH / 2;
+    fig.appendChild (svg ('line', {class: 'grid', x1: padL, y1: yy2,
+                                   x2: plotW - padR, y2: yy2, opacity: '0.4'}));
   });
 
   marks.forEach (function (m) {
-    var yy = padT + lanes.indexOf (m.package) * rowH + rowH / 2;
+    var yy3 = padT + lanes.indexOf (m.package) * rowH + rowH / 2;
     var r = Math.min (13, 3 + Math.sqrt (m.count) * 1.6);
     var dot = svg ('circle', {
       class: m.event === 'added' ? (m.bycore ? 'bycore' : 'added') : 'removed',
-      cx: x (m.date), cy: yy, r: r});
+      cx: x (m.date), cy: yy3, r: r});
     dot.appendChild (svg ('title', {text:
       m.date + ' — ' + m.event + ' ' + m.count + ' name'
       + (m.count === 1 ? '' : 's') + ' (' + m.names.join (', ')
       + (m.count > m.names.length ? ', …' : '') + ') — caused by ' + m.cause}));
     fig.appendChild (dot);
   });
+
+  var scroller = el ('div', {class: 'overflow-auto flex-grow-1'});
+  scroller.appendChild (fig);
+  var figure = el ('div', {class: 'd-flex align-items-start'},
+                   [labels, scroller]);
 
   var legend = el ('p', {class: 'legend text-muted small mb-0 mt-2'});
   legend.innerHTML =
@@ -833,7 +857,7 @@ function viewTimeline () {
     'Every change replayed in date order and attributed to the release that '
     + 'caused it. The tall column in April 2018 is Octave 4.4.0 handing the '
     + 'statistics functions to the package that now carries them.',
-    [fig, legend]);
+    [figure, legend]);
 }
 
 function isoOf (dayNumber) {

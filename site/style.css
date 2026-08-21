@@ -27,17 +27,17 @@ svg.figure text.title { font: 600 13px system-ui, sans-serif; fill: #212529; }
 svg.plot text { font: 14px Consolas, "Courier New", monospace; fill: #495057; }
 svg.plot text.title { font: 600 15px system-ui, sans-serif; fill: #212529; }
 svg.figure .grid, svg.plot .grid { stroke: #dee2e6; stroke-width: 1; }
-svg.figure .corerule { stroke: #6f42c1; stroke-width: 1; stroke-dasharray: 2 2;
+svg.figure .corerule, svg.plot .corerule { stroke: #6f42c1; stroke-width: 1; stroke-dasharray: 2 2;
                        opacity: 0.5; }
 svg.figure .edge, svg.plot .edge { stroke: #adb5bd; fill: none; stroke-width: 1.5; }
-svg.figure .node { fill: #fff; stroke: #0d6efd; stroke-width: 1.5; }
-svg.figure .node.root { fill: #0d6efd; stroke: #0d6efd; }
-svg.figure .node.core { fill: #fff; stroke: #6f42c1; }
+svg.figure .node, svg.plot .node { fill: #fff; stroke: #0d6efd; stroke-width: 1.5; }
+svg.figure .node.root, svg.plot .node.root { fill: #0d6efd; stroke: #0d6efd; }
+svg.figure .node.core, svg.plot .node.core { fill: #fff; stroke: #6f42c1; }
 svg.figure text.nodelabel { fill: #212529; }
 svg.figure text.nodelabel.root { fill: #fff; }
 svg.figure .added, svg.plot .added { fill: #fd7e14; }
-svg.figure .removed { fill: #fff; stroke: #6c757d; stroke-width: 1.2; }
-svg.figure .bycore { fill: #6f42c1; }
+svg.figure .removed, svg.plot .removed { fill: #fff; stroke: #6c757d; stroke-width: 1.2; }
+svg.figure .bycore, svg.plot .bycore { fill: #6f42c1; }
 
 .legend span { margin-right: 1rem; white-space: nowrap; }
 .legend i { display: inline-block; width: 0.7rem; height: 0.7rem;
@@ -48,3 +48,13 @@ svg.figure .bycore { fill: #6f42c1; }
 .bg-purple { background-color: #6f42c1 !important; }
 
 svg.figure text.wants { fill: #6c757d; font-size: 10px; }
+
+/* Core release tags, turned on their side: at this density there is no room to
+   write them across the figure. */
+svg.plot text.corelabel { font: 11px Consolas, "Courier New", monospace;
+                          fill: #6f42c1; }
+
+/* A flex item holding something wider than the row will not shrink below its
+   content unless told to, and would otherwise push the lane names out of the
+   card entirely. */
+.overflow-auto.flex-grow-1 { min-width: 0; }

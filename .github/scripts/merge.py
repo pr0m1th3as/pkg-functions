@@ -177,6 +177,43 @@ def octave_release_dates():
             if r.get("version") and r.get("date")}
 
 
+def got_as_far(record):
+    """How far a harvest got: measured, failed on the package, or neither.
+
+    A download that timed out or a container that died says nothing about the
+    release, only about the day it was tried.  A configure or make failure is a
+    finding about the release itself, reached only once the tarball was in
+    hand.
+    """
+    if record.get("status") == "ok":
+        return 2
+    if (record.get("status") == "runner-failed"
+            or (record.get("message") or "").startswith(
+                "pkg: failed to download")):
+        return 0
+    return 1
+
+
+def supersedes(record, held):
+    """Whether an incoming record should replace the one held for its release.
+
+    Failures are retried every hour, and a retry that fails again rarely fails
+    the same way twice: the SourceForge mirrors time out on one run and let the
+    tarball through to its real configure error on the next.  Taking every
+    retry at its word rewrote the same records back and forth, one commit each,
+    with nothing learned.  So a record that got less far never replaces one of
+    the same tarball that got further, and a failure that differs from the one
+    held only in its message is not news.
+    """
+    same_tarball = (record.get("sha256") or "") == (held.get("sha256") or "")
+    if same_tarball and got_as_far(record) < got_as_far(held):
+        return False
+    if record.get("status") != "ok" and got_as_far(record) == got_as_far(held):
+        rest = {k: v for k, v in record.items() if k != "message"}
+        return rest != {k: v for k, v in held.items() if k != "message"}
+    return True
+
+
 def store_incoming():
     """File each incoming record under its own provider and version."""
     release_dates = octave_release_dates()
@@ -203,7 +240,12 @@ def store_incoming():
             # came to be measured, and it stops moving every time it is
             # measured again.
             record["date"] = release_dates[version]
-        save(os.path.join(DATA, package, version + ".json"), record)
+        target = os.path.join(DATA, package, version + ".json")
+        if os.path.exists(target) and not supersedes(record, load(target)):
+            print(f"{package} {version}: kept the record held "
+                  f"({record.get('status')}: {record.get('message', '')})")
+            continue
+        save(target, record)
         stored += 1
     return stored
 
@@ -403,7 +445,7 @@ def main():
     byname = all_records()
     core_records = byname.get(CORE, [])
 
-    summary, latest = {}, {}
+    summary, latest, fallback = {}, {}, 0
     for package, records in sorted(byname.items()):
         if package == CORE:
             continue
@@ -417,7 +459,19 @@ def main():
             "releases": sorted((r["version"] for r in records),
                                key=version_key),
         }
-        if record is not None and record.get("status") == "ok":
+        # The current views are built from the newest release that was
+        # measured, which is the newest release unless that one failed or is
+        # not held yet.  Taking only the newest emptied a package out of the
+        # search index for as long as its newest release could not be
+        # installed, though an older release had been measured and still
+        # installs as it did.  The timeline already works this way, so the
+        # shadowing view never did it.
+        if record is None or record.get("status") != "ok":
+            record = max((r for r in records if r.get("status") == "ok"),
+                         key=release_order, default=None)
+            if record is not None:
+                fallback += 1
+        if record is not None:
             latest[package] = record
 
     save(os.path.join(DATA, "index.json"), summary)
@@ -525,7 +579,8 @@ def main():
 
     releases = sum(len(r) for r in byname.values() if r is not core_records)
     print(f"{stored} records stored this run; {releases} package releases held "
-          f"across {len(summary)} packages; {len(latest)} scanned at newest; "
+          f"across {len(summary)} packages; {len(latest) - fallback} scanned "
+          f"at newest, {fallback} at an older release; "
           f"{len(names)} names")
     print(f"{len(current_collisions)} collisions now, "
           f"{len(collision_changes)} collision changes on record; "
